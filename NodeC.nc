@@ -12,6 +12,7 @@
 #include "includes/packet.h"
 
 configuration NodeC{
+    
 }
 implementation {
     components MainC;
@@ -30,4 +31,10 @@ implementation {
 
     components CommandHandlerC;
     Node.CommandHandler -> CommandHandlerC;
+
+    components FloodingC;
+    Node.Flooding -> FloodingC;
+
+//    components NeighborDiscoveryC(AM_PACK);
+//    Node.NeighborDiscovery -> NeighborDiscoveryC;
 }

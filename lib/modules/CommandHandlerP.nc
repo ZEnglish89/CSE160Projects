@@ -20,6 +20,7 @@ module CommandHandlerP{
 
 implementation{
     task void processCommand(){
+//        dbg(COMMAND_CHANNEL, "Inside processCommand.\n");
         if(! call Queue.empty()){
             CommandMsg *msg;
             uint8_t commandID;
