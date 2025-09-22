@@ -25,7 +25,7 @@ module Node{
 
    uses interface Flooding;
 
-//   uses interface NeighborDiscovery;
+   uses interface NeighborDiscovery;
 }
 
 implementation{
@@ -44,7 +44,7 @@ implementation{
       if(err == SUCCESS){
          dbg(GENERAL_CHANNEL, "Radio On\n");
 //         call NeighborDiscovery.findNeighbors();
-         call Flooding.start();
+//         call Flooding.start();
       }else{
          //Retry until successful
          call AMControl.start();
