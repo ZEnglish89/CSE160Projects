@@ -13,7 +13,7 @@ generic module NeighborDiscoveryP(){
     uses interface Queue<sendInfo*>;
     uses interface Pool<sendInfo>;
 
-    uses interface SimpleSend;
+    uses interface SimpleSend.send;
 
 }
 
@@ -27,11 +27,17 @@ implementation {
 //        "logic: send the message, if there is a response, save the respondent's id inside table"
         call neighborTimer.startPeriodic(100+(call Random.rand16()%300));
     }
-
+/*
     event void neighborTimer.fired(){
         pack message;
         uint16_t destination = AM_BROADCAST_ADDR;
         call SimpleSend.send(message, destination);
+    }*/
+
+    event void neighborTimer.fired(){
+        pack message;
+        post send(self, AM_BROADCAST_ADDR, message);
+
     }
 
     command void NeighborDiscovery.printNeighbors(){};
