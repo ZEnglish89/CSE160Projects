@@ -16,4 +16,7 @@ implementation{
 
     components RandomC as Random;
     NeighborDiscoveryP.Random -> Random;
+
+    components new SimpleSendC(channel);
+    NeighborDiscoveryP.SimpleSend -> SimpleSendC;
 }

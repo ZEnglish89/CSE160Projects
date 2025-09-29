@@ -13,7 +13,7 @@ generic module NeighborDiscoveryP(){
     uses interface Queue<sendInfo*>;
     uses interface Pool<sendInfo>;
 
-    uses interface SimpleSend.send;
+    uses interface SimpleSend;
 
 }
 
@@ -36,7 +36,7 @@ implementation {
 
     event void neighborTimer.fired(){
         pack message;
-        post send(self, AM_BROADCAST_ADDR, message);
+        call SimpleSend.send(message, AM_BROADCAST_ADDR);
 
     }
 
