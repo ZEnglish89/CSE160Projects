@@ -21,5 +21,7 @@ implementation {
 //        post sendBufferTask();
 //    }
 
-    command void NeighborDiscovery.printNeighbors(){};
+    command void NeighborDiscovery.printNeighbors(){
+        dbg(NEIGHBOR_CHANNEL,"This is a neighbordiscovery test\n");
+    };
 }
