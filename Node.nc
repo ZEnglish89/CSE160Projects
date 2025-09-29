@@ -72,7 +72,9 @@ implementation{
       call Sender.send(sendPackage, destination);
    }
 
-   event void CommandHandler.printNeighbors(){}
+   event void CommandHandler.printNeighbors(){
+      //Do this
+   }
 
    event void CommandHandler.printRouteTable(){}
 
@@ -88,7 +90,9 @@ implementation{
 
    event void CommandHandler.setAppClient(){}
 
-
+//   command void NeighborDiscovery.findNeighbors(){
+//      dbg(GENERAL_CHANNEL, "===Finding Neighbors===\n");
+//   }
 
    void makePack(pack *Package, uint16_t src, uint16_t dest, uint16_t TTL, uint16_t protocol, uint16_t seq, uint8_t* payload, uint8_t length){
       Package->src = src;
