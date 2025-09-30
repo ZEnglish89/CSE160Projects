@@ -10,5 +10,8 @@ configuration FloodingC{
 
 implementation{
     components FloodingP;
-    Flooding = FloodingP;
+    Flooding = FloodingP.Flooding;
+
+    components new SimpleSendC(AM_PACK);
+    NeighborDiscoveryP.SimpleSend -> SimpleSendC;
 }

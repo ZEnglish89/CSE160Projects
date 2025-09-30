@@ -45,7 +45,7 @@ implementation{
          dbg(GENERAL_CHANNEL, "Radio On\n");
          call NeighborDiscovery.findNeighbors();
          //call NeighborDiscovery.printNeighbors();
-         call Flooding.start();
+         call Flooding.initializeFlooding();
       }else{
          //Retry until successful
          call AMControl.start();
