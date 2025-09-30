@@ -54,19 +54,56 @@ implementation{
 
    event void AMControl.stopDone(error_t err){}
 
-   event message_t* Receive.receive(message_t* msg, void* payload, uint8_t len){
-      dbg(GENERAL_CHANNEL, "Packet Received\n");
-      if(len==sizeof(pack)){
-         pack* myMsg=(pack*) payload;
-         if(myMsg->payload=="XXXXX"){
-            call NeighborDiscovery.neighborUpdate();
+   event message_t* Receive.receive(message_t* msg, void* payload, uint8_t len) {
+      pack* myMsg;
+      pack responseMsg;
+      uint8_t responsePayload[14];
+      
+      if(len == sizeof(pack)) {
+         myMsg = (pack*) payload;
+         
+         // Check if this is a neighbor discovery packet
+         if(strncmp((char*)myMsg->payload, "NEIGHBOR_DISC", 13) == 0) {
+               dbg(NEIGHBOR_CHANNEL, "Received neighbor discovery from node %d\n", myMsg->src);
+               
+               // If we're not the sender, add to our neighbor table and respond
+               if(myMsg->src != TOS_NODE_ID) {
+                  // Send response back
+                  responseMsg.src = TOS_NODE_ID;
+                  responseMsg.dest = myMsg->src;
+                  responseMsg.TTL = 1;
+                  responseMsg.protocol = 1;
+                  
+                  memcpy(responsePayload, "NEIGHBOR_RESP", 13);
+                  responsePayload[13] = '\0';
+                  memcpy(responseMsg.payload, responsePayload, 14);
+                  
+                  call Sender.send(responseMsg, myMsg->src);
+                  dbg(NEIGHBOR_CHANNEL, "Sent neighbor response to node %d\n", myMsg->src);
+                  
+                  // Add the discoverer to our neighbor table
+                  call NeighborDiscovery.neighborUpdate(myMsg->src);
+               }
+               return msg;
          }
-         else{
-            dbg(GENERAL_CHANNEL, "Package Payload: %s\n", myMsg->payload);
+         // Check if this is a neighbor discovery response
+         else if(strncmp((char*)myMsg->payload, "NEIGHBOR_RESP", 13) == 0) {
+               dbg(NEIGHBOR_CHANNEL, "Received neighbor response from node %d\n", myMsg->src);
+               
+               // Add the responder to our neighbor table
+               if(myMsg->src != TOS_NODE_ID) {
+                  call NeighborDiscovery.neighborUpdate(myMsg->src);
+               }
+               return msg;
          }
+         
+         // If we get here, it's not a neighbor discovery packet
+         dbg(GENERAL_CHANNEL, "Packet Received\n");
+         dbg(GENERAL_CHANNEL, "Package Payload: %s\n", myMsg->payload);
          return msg;
       }
-      dbg(GENERAL_CHANNEL, "Unknown Packet Type %d\n", len);
+      
+      dbg(GENERAL_CHANNEL, "Packet Received - Unknown Packet Type %d\n", len);
       return msg;
    }
 
@@ -78,14 +115,15 @@ implementation{
    }
 
    event void CommandHandler.neighDisc(){
-      void* payload = "XXXXX";
-      dbg(GENERAL_CHANNEL, "NEIGHBOR DISCOVERY EVENT \n");
-      makePack(&sendPackage, TOS_NODE_ID, AM_BROADCAST_ADDR, 0, 0, 0, payload, PACKET_MAX_PAYLOAD_SIZE);
-      call Sender.send(sendPackage, AM_BROADCAST_ADDR);
+      //void* payload = "XXXXX";
+      //dbg(GENERAL_CHANNEL, "NEIGHBOR DISCOVERY EVENT \n");
+      //makePack(&sendPackage, TOS_NODE_ID, AM_BROADCAST_ADDR, 0, 0, 0, payload, PACKET_MAX_PAYLOAD_SIZE);
+      //call Sender.send(sendPackage, AM_BROADCAST_ADDR);
    }
 
    event void CommandHandler.printNeighbors(){
-      //Do this
+      dbg(GENERAL_CHANNEL, "Node %d: Received printNeighbors command\n", TOS_NODE_ID);
+      call NeighborDiscovery.printNeighbors();
    }
 
    event void CommandHandler.printRouteTable(){}

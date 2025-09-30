@@ -11,9 +11,14 @@ class TestSim:
     moteids=[]
     # COMMAND TYPES
     CMD_PING = 0
-    CMD_NEIGHBOR_DUMP = 1
-    CMD_ROUTE_DUMP = 3
-    CMD_NEIGHBOR_DISC = 4
+    CMD_NEIGHBOR_DISC = 1
+    CMD_NEIGHBOR_DUMP = 2
+    CMD_LINKSTATE_DUMP = 3
+    CMD_ROUTETABLE_DUMP = 4
+    CMD_TEST_CLIENT = 5
+    CMD_TEST_SERVER = 6
+    CMD_KILL = 7
+    CMD_ERROR = 9
 
     # CHANNELS - see includes/channels.h
     COMMAND_CHANNEL="command";
@@ -105,8 +110,8 @@ class TestSim:
 
     # Rough run time. tickPerSecond does not work.
     def runTime(self, amount):
-        self.run(amount*1000)
-
+        self.run(amount)
+ 
     # Generic Command
     def sendCMD(self, ID, dest, payloadStr):
         self.msg.set_dest(dest);
@@ -121,13 +126,13 @@ class TestSim:
         self.sendCMD(self.CMD_PING, source, "{0}{1}".format(chr(dest),msg));
     
     def neighborDISC(self, source):
-        self.sendCMD(self.CMD_NEIGHBOR_DISC, source, "neighbor command");
+        self.sendCMD(self.CMD_NEIGHBOR_DISC, source, "neighbor command")
 
     def neighborDMP(self, destination):
-        self.sendCMD(self.CMD_NEIGHBOR_DUMP, destination, "neighbor command");
+        self.sendCMD(self.CMD_NEIGHBOR_DUMP, destination, "neighbor command")
 
     def routeDMP(self, destination):
-        self.sendCMD(self.CMD_ROUTE_DUMP, destination, "routing command");
+        self.sendCMD(self.CMD_ROUTETABLE_DUMP, destination, "routing command")
 
     def addChannel(self, channelName, out=sys.stdout):
         print 'Adding Channel', channelName;
@@ -136,19 +141,25 @@ class TestSim:
 def main():
     s = TestSim();
     s.runTime(10);
-    s.loadTopo("long_line.topo");
+    s.loadTopo("example.topo");
     s.loadNoise("no_noise.txt");
     s.bootAll();
     s.addChannel(s.COMMAND_CHANNEL);
     s.addChannel(s.GENERAL_CHANNEL);
     s.addChannel(s.FLOODING_CHANNEL);
-    s.addChannel(s.NEIGHBOR_CHANNEL);
+    #s.addChannel(s.NEIGHBOR_CHANNEL);
 
-    s.runTime(20);
-    s.ping(1, 2, "Hello, World");
-    s.runTime(10);
-    s.ping(1, 3, "Hi!");
-    s.runTime(200000);
+    # Let neighbor discovery run for a while
+    s.runTime(120000);  # 2 minutes to allow several discovery cycles
+    
+    # Then dump neighbor tables for all nodes
+    print "=== DUMPING NEIGHBOR TABLES ==="
+    for node_id in s.moteids:
+        print "Requesting neighbor dump for node", node_id
+        s.neighborDMP(node_id)
+        s.runTime(1000);  # Small delay between commands
+    
+    s.runTime(50000);  # Give time for all print commands to execute
 
 if __name__ == '__main__':
     main()

@@ -3,5 +3,5 @@
 interface NeighborDiscovery{
     command void findNeighbors();
     command void printNeighbors();
-    command void neighborUpdate();
+    command void neighborUpdate(uint16_t nodeId);
 }

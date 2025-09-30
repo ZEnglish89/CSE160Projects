@@ -8,6 +8,6 @@ module FloodingP{
 
 implementation{
     command error_t Flooding.start(){
-        dbg(FLOODING_CHANNEL,"This is a flooding test.\n");
+        //dbg(FLOODING_CHANNEL,"This is a flooding test.\n");
     }
 }
