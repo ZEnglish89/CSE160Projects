@@ -43,8 +43,8 @@ implementation{
    event void AMControl.startDone(error_t err){
       if(err == SUCCESS){
          dbg(GENERAL_CHANNEL, "Radio On\n");
-//         call NeighborDiscovery.findNeighbors();
-         call NeighborDiscovery.printNeighbors();
+         call NeighborDiscovery.findNeighbors();
+         //call NeighborDiscovery.printNeighbors();
          call Flooding.start();
       }else{
          //Retry until successful
@@ -58,7 +58,12 @@ implementation{
       dbg(GENERAL_CHANNEL, "Packet Received\n");
       if(len==sizeof(pack)){
          pack* myMsg=(pack*) payload;
-         dbg(GENERAL_CHANNEL, "Package Payload: %s\n", myMsg->payload);
+         if(myMsg->payload=="XXXXX"){
+            call NeighborDiscovery.neighborUpdate();
+         }
+         else{
+            dbg(GENERAL_CHANNEL, "Package Payload: %s\n", myMsg->payload);
+         }
          return msg;
       }
       dbg(GENERAL_CHANNEL, "Unknown Packet Type %d\n", len);
@@ -70,6 +75,13 @@ implementation{
       dbg(GENERAL_CHANNEL, "PING EVENT \n");
       makePack(&sendPackage, TOS_NODE_ID, destination, 0, 0, 0, payload, PACKET_MAX_PAYLOAD_SIZE);
       call Sender.send(sendPackage, destination);
+   }
+
+   event void CommandHandler.neighDisc(){
+      void* payload = "XXXXX";
+      dbg(GENERAL_CHANNEL, "NEIGHBOR DISCOVERY EVENT \n");
+      makePack(&sendPackage, TOS_NODE_ID, AM_BROADCAST_ADDR, 0, 0, 0, payload, PACKET_MAX_PAYLOAD_SIZE);
+      call Sender.send(sendPackage, AM_BROADCAST_ADDR);
    }
 
    event void CommandHandler.printNeighbors(){

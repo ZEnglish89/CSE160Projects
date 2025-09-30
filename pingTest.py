@@ -26,7 +26,7 @@ def main():
     s.runTime(1);
 
     s.ping(1, 10, "Hi!");
-    s.runTime(1);
+    s.runTime(100);
 
 if __name__ == '__main__':
     main()
