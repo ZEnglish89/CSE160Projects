@@ -126,12 +126,12 @@ class TestSim:
     def ping(self, source, dest, msg):
         self.sendCMD(self.CMD_PING, source, "{0}{1}".format(chr(dest),msg));
     
-    def flood(self, source, msg):
-        payload = chr(0) + msg  # 0 means broadcast to all nodes
-        self.sendCMD(self.CMD_FLOOD, source, payload)
-
-    def targetFlood(self, source, destination, msg):
-        # Format: first byte is destination, rest is message
+#    def flood(self, source, msg):
+#        payload = chr(0) + msg  # 0 means broadcast to all nodes
+#        self.sendCMD(self.CMD_FLOOD, source, payload)
+#better to have just one function for flooding, and we can pass in a 0 if we want a broadcast.
+    def flood(self, source, destination, msg):
+        # the first byte is the destination, the rest is the message
         payload = chr(destination) + msg
         self.sendCMD(self.CMD_FLOOD, source, payload)
     
@@ -172,15 +172,15 @@ def main():
     s.runTime(10000);  # Give time for all print commands to execute
 
     print "=== STARTING FLOOD TEST ==="
-    print "Node 1 flooding message: 'HELLO_FLOOD'"
-    s.flood(1, "HELLO_FLOOD")
+    print "Node 1 broadcast flooding message: 'HELLO_FLOOD'"
+    s.flood(1,0, "HELLO_FLOOD")
     
     # Let the flood propagate through the network
     s.runTime(100000);  # 10 seconds for flood propagation
     
     # Test 3: Start another flood from a different node
-    print "Node 5 flooding message: 'SECOND_FLOOD'"
-    s.flood(5, "SECOND_FLOOD")
+    print "Node 5 broadcast flooding message: 'SECOND_FLOOD'"
+    s.flood(5,0, "SECOND_FLOOD")
     
     s.runTime(100000);  # 10 more seconds
     
@@ -191,11 +191,11 @@ def main():
     # Test both broadcast and targeted flooding:
     print "=== Testing Targeted Flooding ==="
     print "Node 1 flooding targeted message to node 9"
-    s.targetFlood(1, 9, "TARGETED_TO_9")
+    s.flood(1, 9, "TARGETED_TO_9")
 
     s.runTime(100000)  # Wait for flood and ACK
     
-    # Optional: Dump neighbor tables again to see if anything changed
+    # Dump neighbor tables again to see if anything changed, even though it definitely shouldn't.
     print "=== FINAL NEIGHBOR TABLES ==="
     for node_id in s.moteids:
         s.neighborDMP(node_id)

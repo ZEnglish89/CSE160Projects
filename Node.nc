@@ -101,28 +101,20 @@ implementation{
                }
                return msg;
          }
-         // Check if this is a flooding packet
-         else if(myMsg->protocol == FLOOD_PROTOCOL) {
-               dbg(FLOODING_CHANNEL, "Node %d: Received flooding packet from node %d\n", TOS_NODE_ID, myMsg->src);
+         // otherwise, this is a flooding packet. based on our current setup, if it's not used for neighbordiscovery it must be a flood.
+         else{
+               dbg(FLOODING_CHANNEL, "Node %d: Received flooding packet from node %d, handling\n", TOS_NODE_ID, myMsg->src);
                handleFloodPacket(myMsg, len, myMsg->src);
                return msg;
          }
          
-         // If we get here, it's not a special packet
-         dbg(GENERAL_CHANNEL, "Packet Received\n");
-         dbg(GENERAL_CHANNEL, "Package Payload: %s\n", myMsg->payload);
-         return msg;
       }
-      
+      //we shouldn't ever get here, but still.
       dbg(GENERAL_CHANNEL, "Packet Received - Unknown Packet Type %d\n", len);
       return msg;
    }
 
-   // Handle flooding packets with neighbor-based forwarding
-      // Handle flooding packets with neighbor-based forwarding
-      // Handle flooding packets with neighbor-based forwarding
-      // Handle flooding packets with targeted flooding and ACK support
-      // Handle flooding packets with targeted flooding and ACK support
+
    void handleFloodPacket(pack* receivedPkt, uint8_t pktLen, uint16_t senderId) {
       FloodHeader fh;
       uint8_t appPayloadLength;
@@ -134,6 +126,7 @@ implementation{
       dbg(FLOODING_CHANNEL,"Node %d received flood type %d from src %d dest %d seq %d TTL %d via node %d\n", 
           TOS_NODE_ID, fh.floodType, fh.floodSrc, fh.floodDest, fh.floodSeq, fh.floodTTL, senderId);
       
+      //Now we have to check all the different reasons why we may want to drop it or treat it special: duplicates, dead TTL, if it's just an ACK, etc.
       // Check for duplicates
       if(isDuplicateFlood(fh.floodSrc, fh.floodSeq)) {
          dbg(FLOODING_CHANNEL,"Node %d dropping duplicate flood\n", TOS_NODE_ID);
@@ -145,70 +138,68 @@ implementation{
          dbg(FLOODING_CHANNEL,"Node %d dropping flood - TTL expired\n", TOS_NODE_ID);
          return;
       }
-      
+
+      //it could be useful to check the TTL *and* see if it's an ACK or not simultaneously, so we can report what type of flood got dropped.
+      //consider for future updates, I suppose.
+
       // Handle ACK floods
       if(fh.floodType == FLOOD_TYPE_ACK) {
-         // If this ACK is meant for us, signal the application
+         //If we're the destination, signal that we got it and move on.
          if(fh.floodDest == TOS_NODE_ID) {
-            dbg(FLOODING_CHANNEL,"Node %d received ACK for flood seq %d from node %d\n", 
-                TOS_NODE_ID, fh.floodSeq, fh.floodSrc);
+//          We announce it in the floodAckReceived() function, so no point in saying it twice.
+//            dbg(FLOODING_CHANNEL,"Node %d received ACK for flood seq %d from node %d\n", TOS_NODE_ID, fh.floodSeq, fh.floodSrc);
             signal Flooding.floodAckReceived(fh.floodSrc, fh.floodSeq);
-            // ACK reached its destination - don't forward further
+            //The ACK got to us, no reason to keep flooding it.
             return;
          }
          
-         // If we're not the destination, check TTL and forward the ACK
-         if(fh.floodTTL == 0) {
-            dbg(FLOODING_CHANNEL,"Node %d dropping ACK flood - TTL expired\n", TOS_NODE_ID);
-            return;
-         }
-         
-         // Decrement TTL and update packet for forwarding
+         //Otherwise, forward it further. No need to check TTL because we did that above.
+         // Decrement TTL and update the packet
          fh.floodTTL--;
          memcpy(receivedPkt->payload, &fh, FLOOD_HEADER_SIZE);
          
-         // Forward ACK to all neighbors EXCEPT the one we received it from
+         //Forward the ACK to everyone except the node who sent it to us, to minimize looping.
          forwardFloodToNeighbors(receivedPkt, senderId);
          dbg(FLOODING_CHANNEL,"Node %d forwarding ACK flood seq %d\n", TOS_NODE_ID, fh.floodSeq);
          return;
       }
       
-      // Handle DATA floods (original logic remains the same)
-      // Check if this flood is targeted and we're not the destination
+      // Handle regular/data floods, now that ACKs are out of the way.
+      // Check if this flood is targeted(not a broadcast) and we're not the destination
       if(fh.floodDest != 0 && fh.floodDest != TOS_NODE_ID) {
-         // This is a targeted flood but we're not the destination - just forward
+         //If it's targeted but we aren't the destination, then we skip all the hard work and move ahead to forwarding it.
          dbg(FLOODING_CHANNEL,"Node %d forwarding targeted flood (not for us)\n", TOS_NODE_ID);
       } else {
-         // We are either the destination or it's a broadcast flood
+         // We are either the destination or it's a broadcast flood, so we have to actually deal with it.
          // Calculate application payload length
          appPayloadLength = PACKET_MAX_PAYLOAD_SIZE - FLOOD_HEADER_SIZE;
          
-         // Copy application payload to buffer
+         // Copy application payload to buffer, ta-daa it's ours now.
          memcpy(appPayloadBuffer, &receivedPkt->payload[FLOOD_HEADER_SIZE], appPayloadLength);
          
          // Signal application that we received a flood
          signal Flooding.floodReceived(fh.floodSrc, fh.floodSeq, appPayloadBuffer, appPayloadLength);
          
-         // If this is a targeted flood and we're the destination, send ACK
+         // If this is a targeted flood and we're the destination, send an ACK in return.
          if(fh.floodDest != 0 && fh.floodDest == TOS_NODE_ID) {
             dbg(FLOODING_CHANNEL,"Node %d is destination for targeted flood seq %d, sending ACK\n", 
                 TOS_NODE_ID, fh.floodSeq);
             // Send ACK back to source
             sendFloodAck(fh.floodSrc, fh.floodSeq);
-            // Don't forward targeted floods after reaching destination
+            // The flood has already reached us, so there's no reason to keep forwarding.
             return;
          }
       }
       
-      // Decrement TTL and update packet for forwarding
+      // Decrement TTL and get ready to forward.
       fh.floodTTL--;
       memcpy(receivedPkt->payload, &fh, FLOOD_HEADER_SIZE);
       
-      // Forward to all neighbors EXCEPT the one we received it from
+      // Forward to everyone except who sent it to us, just like above.
       forwardFloodToNeighbors(receivedPkt, senderId);
    }
 
-   // Forward flood packet to all neighbors except the sender
+   // Forward a flood packet to all the node's neighbors except the one they received it from.
    void forwardFloodToNeighbors(pack* floodPkt, uint16_t senderId) {
       uint8_t i;
       uint8_t neighborCount;
@@ -228,15 +219,16 @@ implementation{
       // Send to each neighbor except the sender
       for(i = 0; i < neighborCount; i++) {
          neighborId = call NeighborDiscovery.getNeighbor(i);
+         //If the neighbor being considered isn't the sender, isn't ourselves, and isn't a broadcast ID
          if(neighborId != senderId && neighborId != TOS_NODE_ID && neighborId != 0) {
             dbg(FLOODING_CHANNEL,"Node %d forwarding flood seq %d to neighbor %d\n", 
                 TOS_NODE_ID, fh.floodSeq, neighborId);
-            
+            //Then send that bad boy!
             call Sender.send(*floodPkt, neighborId);
             forwarded = TRUE;
          }
       }
-      
+      //If we check all of our neighbors and there's nobody to forward it to, then say so and move on.
       if(!forwarded) {
          dbg(FLOODING_CHANNEL,"Node %d has no other neighbors to forward flood seq %d\n", 
              TOS_NODE_ID, fh.floodSeq);
@@ -247,21 +239,25 @@ implementation{
    bool isDuplicateFlood(uint16_t floodSource, uint16_t seqNum) {
       uint8_t i;
       for(i = 0; i < floodCacheSize; i++) {
+         //if the flood came from the node we're currently considering.
          if(floodCache[i].nodeId == floodSource) {
+            //if we've already seen a sequence number that high or higher from that node, then it's a duplicate.
             if(floodCache[i].maxSeq >= seqNum) {
                return TRUE;
             }
+            //if not, it must be new, so we can adjust our max and move on.
             floodCache[i].maxSeq = seqNum;
             return FALSE;
          }
       }
       
-      // New source, add to cache if space
+      //if we made it all the way through that loop without returning, this must come from a new source, so we can try adding it to the cache.
       if(floodCacheSize < MAX_FLOOD_CACHE_ENTRIES) {
          floodCache[floodCacheSize].nodeId = floodSource;
          floodCache[floodCacheSize].maxSeq = seqNum;
          floodCacheSize++;
       }
+      //and if so, it can't possibly be a duplicate.
       return FALSE;
    }
 
@@ -285,12 +281,13 @@ implementation{
       ackMsg.dest = AM_BROADCAST_ADDR;
       ackMsg.seq = 0;
       ackMsg.TTL = MAX_TTL;
-      ackMsg.protocol = FLOOD_PROTOCOL;
+      //I don't think it actually makes a material difference if this is a ping or a pingreply, but it's thematically accurate.
+      ackMsg.protocol = PROTOCOL_PINGREPLY;
       
       // Copy flooding header to payload
       memcpy(ackMsg.payload, &fh, FLOOD_HEADER_SIZE);
       
-      // Send ACK flood via broadcast
+      // Send ACK flood via broadcast to start the flood. no need to be more intelligent about who we send to, it's a new flood.
       forwardFloodToNeighbors(&ackMsg, TOS_NODE_ID);
       dbg(FLOODING_CHANNEL,"Node %d sent ACK flood for seq %d\n", TOS_NODE_ID, seq_num);
    }
