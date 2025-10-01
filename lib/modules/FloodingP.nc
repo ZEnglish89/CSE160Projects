@@ -22,9 +22,9 @@ implementation{
 
     command void Flooding.initializeFlooding(){
         //This table will keep track of what sequence numbers have already been seen.
-        //dbg(FLOODING_CHANNEL,"setting up Flooding table for node %d\n", TOS_NODE_ID);
-        
-        uint8_t i;
+        uint16_t i;
+
+        dbg(FLOODING_CHANNEL,"setting up Flooding table for node %d\n", TOS_NODE_ID);
         
         for (i = 0; i < 256; i++){
             trackPackets[i] = 0;
