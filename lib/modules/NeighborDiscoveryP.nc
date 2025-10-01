@@ -73,7 +73,7 @@ implementation {
         dbg(NEIGHBOR_CHANNEL, "Node %d sent neighbor discovery packet\n", TOS_NODE_ID);
         
         // Schedule next discovery in 30 seconds (30000 milliseconds)
-        call neighborTimer.startOneShot(3000000);
+        call neighborTimer.startOneShot(30000);
         dbg(NEIGHBOR_CHANNEL, "Node %d scheduled next discovery in 30 seconds\n", TOS_NODE_ID);
     }
 
@@ -120,5 +120,16 @@ implementation {
             }
         }
         dbg(GENERAL_CHANNEL, "=== End Neighbor Table ===\n");
+    }
+
+    command uint8_t NeighborDiscovery.getNeighborCount() {
+        return neighborCount;
+    }
+
+    command uint16_t NeighborDiscovery.getNeighbor(uint8_t neighborIndex) {
+        if(neighborIndex < neighborCount) {
+            return neighbors[neighborIndex];
+        }
+        return 0;
     }
 }

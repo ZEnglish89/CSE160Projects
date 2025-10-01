@@ -7,12 +7,12 @@
  *
  */
 #include <Timer.h>
-#include "includes/command.h"
-#include "includes/packet.h"
-#include "includes/CommandMsg.h"
-#include "includes/sendInfo.h"
-#include "includes/channels.h"
-#include "includes/flooding.h"
+#include "../../includes/packet.h"
+#include "../../includes/command.h"
+#include "../../includes/CommandMsg.h"
+#include "../../includes/sendInfo.h"
+#include "../../includes/channels.h"
+#include "../../includes/flooding.h"
 
 module Node{
    uses interface Boot;
@@ -35,9 +35,10 @@ implementation{
    uint8_t floodCacheSize = 0;
 
    // Prototypes
-   void makePack(pack *Package, uint16_t src, uint16_t dest, uint16_t TTL, uint16_t Protocol, uint16_t seq, uint8_t *payload, uint8_t length);
-   void handleFloodPacket(pack* receivedPkt, uint8_t len);
-   bool isDuplicateFlood(uint16_t source, uint16_t seq);
+   void makePack(pack *pkg, uint16_t srcAddr, uint16_t destAddr, uint16_t timeToLive, uint16_t prot, uint16_t seqNum, uint8_t *payld, uint8_t payldLen);
+   void handleFloodPacket(pack* receivedPkt, uint8_t pktLen, uint16_t senderId);
+   void forwardFloodToNeighbors(pack* floodPkt, uint16_t senderId);
+   bool isDuplicateFlood(uint16_t floodSource, uint16_t seqNum);
 
    event void Boot.booted(){
       call AMControl.start();
@@ -62,7 +63,6 @@ implementation{
       pack* myMsg;
       pack responseMsg;
       uint8_t responsePayload[14];
-      FloodHeader* fh;
       
       if(len == sizeof(pack)) {
          myMsg = (pack*) payload;
@@ -103,8 +103,8 @@ implementation{
          }
          // Check if this is a flooding packet
          else if(myMsg->protocol == FLOOD_PROTOCOL) {
-               dbg(FLOODING_CHANNEL, "Node %d: Received flooding packet\n", TOS_NODE_ID);
-               handleFloodPacket(myMsg, len);
+               dbg(FLOODING_CHANNEL, "Node %d: Received flooding packet from node %d\n", TOS_NODE_ID, myMsg->src);
+               handleFloodPacket(myMsg, len, myMsg->src);
                return msg;
          }
          
@@ -118,82 +118,112 @@ implementation{
       return msg;
    }
 
-   // Handle flooding packets
-   void handleFloodPacket(pack* receivedPkt, uint8_t len) {
-      FloodHeader* fh;
-      uint8_t appPayloadLength;
-      uint8_t* appPayload;
+   // Handle flooding packets with neighbor-based forwarding
+      // Handle flooding packets with neighbor-based forwarding
+      // Handle flooding packets with neighbor-based forwarding
+   void handleFloodPacket(pack* receivedPkt, uint8_t pktLen, uint16_t senderId) {
+      FloodHeader fh;
+      uint8_t appPayload[PACKET_MAX_PAYLOAD_SIZE - FLOOD_HEADER_SIZE];
       
-      fh = (FloodHeader*)receivedPkt->payload;
+      // Copy the flooding header from the packet payload
+      memcpy(&fh, receivedPkt->payload, FLOOD_HEADER_SIZE);
       
-      dbg(FLOODING_CHANNEL,"Node %d received flood from src %d seq %d TTL %d\n", 
-          TOS_NODE_ID, fh->floodSrc, fh->floodSeq, fh->floodTTL);
+      dbg(FLOODING_CHANNEL,"Node %d received flood from src %d seq %d TTL %d via node %d\n", 
+          TOS_NODE_ID, fh.floodSrc, fh.floodSeq, fh.floodTTL, senderId);
       
       // Check for duplicates
-      if(isDuplicateFlood(fh->floodSrc, fh->floodSeq)) {
+      if(isDuplicateFlood(fh.floodSrc, fh.floodSeq)) {
          dbg(FLOODING_CHANNEL,"Node %d dropping duplicate flood\n", TOS_NODE_ID);
          return;
       }
       
       // Check TTL
-      if(fh->floodTTL == 0) {
+      if(fh.floodTTL == 0) {
          dbg(FLOODING_CHANNEL,"Node %d dropping flood - TTL expired\n", TOS_NODE_ID);
          return;
       }
       
-      // Calculate application payload length
-      appPayloadLength = PACKET_MAX_PAYLOAD_SIZE - FLOOD_HEADER_SIZE;
-      
-      // Get pointer to application payload
-      appPayload = receivedPkt->payload + FLOOD_HEADER_SIZE;
+      // Copy application payload to a separate buffer
+      memcpy(appPayload, receivedPkt->payload + FLOOD_HEADER_SIZE, 
+             PACKET_MAX_PAYLOAD_SIZE - FLOOD_HEADER_SIZE);
       
       // Signal application that we received a flood
-      signal Flooding.floodReceived(fh->floodSrc, fh->floodSeq, appPayload, appPayloadLength);
+      signal Flooding.floodReceived(fh.floodSrc, fh.floodSeq, 
+                                   appPayload, 
+                                   PACKET_MAX_PAYLOAD_SIZE - FLOOD_HEADER_SIZE);
       
-      // Decrement TTL for rebroadcast
-      fh->floodTTL--;
+      // Decrement TTL and update packet
+      fh.floodTTL--;
+      memcpy(receivedPkt->payload, &fh, FLOOD_HEADER_SIZE);
       
-      // Update link layer source to be us
-      receivedPkt->src = TOS_NODE_ID;
+      // Forward to all neighbors EXCEPT the one we received it from
+      forwardFloodToNeighbors(receivedPkt, senderId);
+   }
+
+   // Forward flood packet to all neighbors except the sender
+   void forwardFloodToNeighbors(pack* floodPkt, uint16_t senderId) {
+      uint8_t i;
+      uint8_t neighborCount;
+      uint16_t neighborId;
+      bool forwarded = FALSE;
+      FloodHeader fh;
       
-      // Rebroadcast
-      call Sender.send(*receivedPkt, AM_BROADCAST_ADDR);
-      dbg(FLOODING_CHANNEL,"Node %d rebroadcasted flood seq %d\n", TOS_NODE_ID, fh->floodSeq);
+      // Copy flooding header to read sequence number
+      memcpy(&fh, floodPkt->payload, FLOOD_HEADER_SIZE);
+      
+      // Update source to be us for the forwarded packets
+      floodPkt->src = TOS_NODE_ID;
+      
+      // Get neighbor count from NeighborDiscovery
+      neighborCount = call NeighborDiscovery.getNeighborCount();
+      
+      // Send to each neighbor except the sender
+      for(i = 0; i < neighborCount; i++) {
+         neighborId = call NeighborDiscovery.getNeighbor(i);
+         if(neighborId != senderId && neighborId != TOS_NODE_ID && neighborId != 0) {
+            dbg(FLOODING_CHANNEL,"Node %d forwarding flood seq %d to neighbor %d\n", 
+                TOS_NODE_ID, fh.floodSeq, neighborId);
+            
+            call Sender.send(*floodPkt, neighborId);
+            forwarded = TRUE;
+         }
+      }
+      
+      if(!forwarded) {
+         dbg(FLOODING_CHANNEL,"Node %d has no other neighbors to forward flood seq %d\n", 
+             TOS_NODE_ID, fh.floodSeq);
+      }
    }
 
    // Check if we've seen this flood before
-   bool isDuplicateFlood(uint16_t source, uint16_t seq) {
+   bool isDuplicateFlood(uint16_t floodSource, uint16_t seqNum) {
       uint8_t i;
       for(i = 0; i < floodCacheSize; i++) {
-         if(floodCache[i].nodeId == source) {
-            if(floodCache[i].maxSeq >= seq) {
-               return TRUE; // Duplicate
+         if(floodCache[i].nodeId == floodSource) {
+            if(floodCache[i].maxSeq >= seqNum) {
+               return TRUE;
             }
-            floodCache[i].maxSeq = seq; // Update to new max
+            floodCache[i].maxSeq = seqNum;
             return FALSE;
          }
       }
       
       // New source, add to cache if space
       if(floodCacheSize < MAX_FLOOD_CACHE_ENTRIES) {
-         floodCache[floodCacheSize].nodeId = source;
-         floodCache[floodCacheSize].maxSeq = seq;
+         floodCache[floodCacheSize].nodeId = floodSource;
+         floodCache[floodCacheSize].maxSeq = seqNum;
          floodCacheSize++;
       }
       return FALSE;
    }
 
-   event void CommandHandler.ping(uint16_t destination, uint8_t *payload){
+   event void CommandHandler.ping(uint16_t destAddr, uint8_t *payld){
       dbg(GENERAL_CHANNEL, "PING EVENT \n");
-      makePack(&sendPackage, TOS_NODE_ID, destination, 0, 0, 0, payload, PACKET_MAX_PAYLOAD_SIZE);
-      call Sender.send(sendPackage, destination);
+      makePack(&sendPackage, TOS_NODE_ID, destAddr, 0, 0, 0, payld, PACKET_MAX_PAYLOAD_SIZE);
+      call Sender.send(sendPackage, destAddr);
    }
 
    event void CommandHandler.neighDisc(){
-      //void* payload = "XXXXX";
-      //dbg(GENERAL_CHANNEL, "NEIGHBOR DISCOVERY EVENT \n");
-      //makePack(&sendPackage, TOS_NODE_ID, AM_BROADCAST_ADDR, 0, 0, 0, payload, PACKET_MAX_PAYLOAD_SIZE);
-      //call Sender.send(sendPackage, AM_BROADCAST_ADDR);
    }
 
    event void CommandHandler.printNeighbors(){
@@ -201,9 +231,9 @@ implementation{
       call NeighborDiscovery.printNeighbors();
    }
 
-   event void CommandHandler.startFlood(uint16_t dest, uint8_t *payload, uint8_t length){
+   event void CommandHandler.startFlood(uint16_t destAddr, uint8_t *payld, uint8_t payldLen){
       dbg(GENERAL_CHANNEL, "Node %d: Received flood command\n", TOS_NODE_ID);
-      call Flooding.startFlood(dest, payload, length);
+      call Flooding.startFlood(destAddr, payld, payldLen);
    }
 
    event void CommandHandler.printRouteTable(){}
@@ -220,17 +250,17 @@ implementation{
 
    event void CommandHandler.setAppClient(){}
 
-   event void Flooding.floodReceived(uint16_t source, uint16_t seq, uint8_t *payload, uint8_t length) {
+   event void Flooding.floodReceived(uint16_t floodSource, uint16_t seqNum, uint8_t *payld, uint8_t payldLen) {
       dbg(GENERAL_CHANNEL, "Node %d: Received flood from node %d, seq %d, payload: %.*s\n", 
-          TOS_NODE_ID, source, seq, length, payload);
+          TOS_NODE_ID, floodSource, seqNum, payldLen, payld);
    }
 
-   void makePack(pack *Package, uint16_t src, uint16_t dest, uint16_t TTL, uint16_t protocol, uint16_t seq, uint8_t* payload, uint8_t length){
-      Package->src = src;
-      Package->dest = dest;
-      Package->TTL = TTL;
-      Package->seq = seq;
-      Package->protocol = protocol;
-      memcpy(Package->payload, payload, length);
+   void makePack(pack *pkg, uint16_t srcAddr, uint16_t destAddr, uint16_t timeToLive, uint16_t prot, uint16_t seqNum, uint8_t* payld, uint8_t payldLen){
+      pkg->src = srcAddr;
+      pkg->dest = destAddr;
+      pkg->TTL = timeToLive;
+      pkg->seq = seqNum;
+      pkg->protocol = prot;
+      memcpy(pkg->payload, payld, payldLen);
    }
 }
