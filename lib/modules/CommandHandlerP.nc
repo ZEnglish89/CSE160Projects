@@ -1,11 +1,3 @@
-/**
- * @author UCM ANDES Lab
- * $Author: abeltran2 $
- * $LastChangedDate: 2014-08-31 16:06:26 -0700 (Sun, 31 Aug 2014) $
- *
- */
-
-
 #include "../../includes/CommandMsg.h"
 #include "../../includes/command.h"
 #include "../../includes/channels.h"
@@ -20,13 +12,13 @@ module CommandHandlerP{
 
 implementation{
     task void processCommand(){
-//        dbg(COMMAND_CHANNEL, "Inside processCommand.\n");
         if(! call Queue.empty()){
             CommandMsg *msg;
             uint8_t commandID;
             uint8_t* buff;
             message_t *raw_msg;
             void *payload;
+            uint8_t payloadLength;
 
             // Pop message out of queue.
             raw_msg = call Queue.dequeue();
@@ -44,11 +36,10 @@ implementation{
             dbg(COMMAND_CHANNEL, "A Command has been Issued.\n");
             buff = (uint8_t*) msg->payload;
             commandID = msg->id;
+            payloadLength = call Packet.payloadLength(raw_msg) - sizeof(CommandMsg) + sizeof(msg->payload);
 
             //Find out which command was called and call related command
             switch(commandID){
-            // A ping will have the destination of the packet as the first
-            // value and the string in the remainder of the payload
             case CMD_PING:
                 dbg(COMMAND_CHANNEL, "Command Type: Ping\n");
                 signal CommandHandler.ping(buff[0], &buff[1]);
@@ -74,13 +65,22 @@ implementation{
                 signal CommandHandler.printRouteTable();
                 break;
 
+            case CMD_FLOOD:  // ADD THIS CASE
+                dbg(COMMAND_CHANNEL, "Command Type: Flood\n");
+                // buff[0] is destination, &buff[1] is the payload
+                // payloadLength-1 because first byte is destination
+                if(payloadLength > 1) {
+                    signal CommandHandler.startFlood(buff[0], &buff[1], payloadLength-1);
+                }
+                break;
+
             case CMD_TEST_CLIENT:
                 dbg(COMMAND_CHANNEL, "Command Type: Client\n");
                 signal CommandHandler.setTestClient();
                 break;
 
             case CMD_TEST_SERVER:
-                dbg(COMMAND_CHANNEL, "Command Type: Client\n");
+                dbg(COMMAND_CHANNEL, "Command Type: Server\n");
                 signal CommandHandler.setTestServer();
                 break;
 
@@ -95,6 +95,7 @@ implementation{
             post processCommand();
         }
     }
+    
     event message_t* Receive.receive(message_t* raw_msg, void* payload, uint8_t len){
         if (! call Pool.empty()){
             call Queue.enqueue(raw_msg);

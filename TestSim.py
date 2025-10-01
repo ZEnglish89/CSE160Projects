@@ -18,6 +18,7 @@ class TestSim:
     CMD_TEST_CLIENT = 5
     CMD_TEST_SERVER = 6
     CMD_KILL = 7
+    CMD_FLOOD = 8
     CMD_ERROR = 9
 
     # CHANNELS - see includes/channels.h
@@ -125,6 +126,10 @@ class TestSim:
     def ping(self, source, dest, msg):
         self.sendCMD(self.CMD_PING, source, "{0}{1}".format(chr(dest),msg));
     
+    def flood(self, source, msg):
+        payload = chr(0) + msg  # 0 means broadcast to all nodes
+        self.sendCMD(self.CMD_FLOOD, source, payload)
+    
     def neighborDISC(self, source):
         self.sendCMD(self.CMD_NEIGHBOR_DISC, source, "neighbor command")
 
@@ -150,7 +155,7 @@ def main():
     #s.addChannel(s.NEIGHBOR_CHANNEL);
 
     # Let neighbor discovery run for a while
-    s.runTime(120000);  # 2 minutes to allow several discovery cycles
+    s.runTime(12000);  # 2 minutes to allow several discovery cycles
     
     # Then dump neighbor tables for all nodes
     print "=== DUMPING NEIGHBOR TABLES ==="
@@ -159,7 +164,32 @@ def main():
         s.neighborDMP(node_id)
         s.runTime(1000);  # Small delay between commands
     
-    s.runTime(50000);  # Give time for all print commands to execute
+    s.runTime(500000);  # Give time for all print commands to execute
+
+    print "=== STARTING FLOOD TEST ==="
+    print "Node 1 flooding message: 'HELLO_FLOOD'"
+    s.flood(1, "HELLO_FLOOD")
+    
+    # Let the flood propagate through the network
+    s.runTime(1000000);  # 10 seconds for flood propagation
+    
+    # Test 3: Start another flood from a different node
+    print "Node 5 flooding message: 'SECOND_FLOOD'"
+    s.flood(5, "SECOND_FLOOD")
+    
+    s.runTime(1000000);  # 10 more seconds
+    
+    # Test 4: Verify flood reached all nodes by checking debug output
+    print "=== FLOOD TEST COMPLETE ==="
+    print "Check the output above for flood reception messages"
+    
+    # Optional: Dump neighbor tables again to see if anything changed
+    print "=== FINAL NEIGHBOR TABLES ==="
+    for node_id in s.moteids:
+        s.neighborDMP(node_id)
+        s.runTime(500);
+    
+    s.runTime(50000);  # Final wait
 
 if __name__ == '__main__':
     main()

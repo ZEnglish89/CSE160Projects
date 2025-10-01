@@ -12,6 +12,7 @@
 #include "includes/CommandMsg.h"
 #include "includes/sendInfo.h"
 #include "includes/channels.h"
+#include "includes/flooding.h"
 
 module Node{
    uses interface Boot;
@@ -30,9 +31,13 @@ module Node{
 
 implementation{
    pack sendPackage;
+   FloodCacheEntry floodCache[MAX_FLOOD_CACHE_ENTRIES];
+   uint8_t floodCacheSize = 0;
 
    // Prototypes
    void makePack(pack *Package, uint16_t src, uint16_t dest, uint16_t TTL, uint16_t Protocol, uint16_t seq, uint8_t *payload, uint8_t length);
+   void handleFloodPacket(pack* receivedPkt, uint8_t len);
+   bool isDuplicateFlood(uint16_t source, uint16_t seq);
 
    event void Boot.booted(){
       call AMControl.start();
@@ -44,7 +49,6 @@ implementation{
       if(err == SUCCESS){
          dbg(GENERAL_CHANNEL, "Radio On\n");
          call NeighborDiscovery.findNeighbors();
-         //call NeighborDiscovery.printNeighbors();
          call Flooding.initializeFlooding();
       }else{
          //Retry until successful
@@ -58,6 +62,7 @@ implementation{
       pack* myMsg;
       pack responseMsg;
       uint8_t responsePayload[14];
+      FloodHeader* fh;
       
       if(len == sizeof(pack)) {
          myMsg = (pack*) payload;
@@ -96,8 +101,14 @@ implementation{
                }
                return msg;
          }
+         // Check if this is a flooding packet
+         else if(myMsg->protocol == FLOOD_PROTOCOL) {
+               dbg(FLOODING_CHANNEL, "Node %d: Received flooding packet\n", TOS_NODE_ID);
+               handleFloodPacket(myMsg, len);
+               return msg;
+         }
          
-         // If we get here, it's not a neighbor discovery packet
+         // If we get here, it's not a special packet
          dbg(GENERAL_CHANNEL, "Packet Received\n");
          dbg(GENERAL_CHANNEL, "Package Payload: %s\n", myMsg->payload);
          return msg;
@@ -107,6 +118,70 @@ implementation{
       return msg;
    }
 
+   // Handle flooding packets
+   void handleFloodPacket(pack* receivedPkt, uint8_t len) {
+      FloodHeader* fh;
+      uint8_t appPayloadLength;
+      uint8_t* appPayload;
+      
+      fh = (FloodHeader*)receivedPkt->payload;
+      
+      dbg(FLOODING_CHANNEL,"Node %d received flood from src %d seq %d TTL %d\n", 
+          TOS_NODE_ID, fh->floodSrc, fh->floodSeq, fh->floodTTL);
+      
+      // Check for duplicates
+      if(isDuplicateFlood(fh->floodSrc, fh->floodSeq)) {
+         dbg(FLOODING_CHANNEL,"Node %d dropping duplicate flood\n", TOS_NODE_ID);
+         return;
+      }
+      
+      // Check TTL
+      if(fh->floodTTL == 0) {
+         dbg(FLOODING_CHANNEL,"Node %d dropping flood - TTL expired\n", TOS_NODE_ID);
+         return;
+      }
+      
+      // Calculate application payload length
+      appPayloadLength = PACKET_MAX_PAYLOAD_SIZE - FLOOD_HEADER_SIZE;
+      
+      // Get pointer to application payload
+      appPayload = receivedPkt->payload + FLOOD_HEADER_SIZE;
+      
+      // Signal application that we received a flood
+      signal Flooding.floodReceived(fh->floodSrc, fh->floodSeq, appPayload, appPayloadLength);
+      
+      // Decrement TTL for rebroadcast
+      fh->floodTTL--;
+      
+      // Update link layer source to be us
+      receivedPkt->src = TOS_NODE_ID;
+      
+      // Rebroadcast
+      call Sender.send(*receivedPkt, AM_BROADCAST_ADDR);
+      dbg(FLOODING_CHANNEL,"Node %d rebroadcasted flood seq %d\n", TOS_NODE_ID, fh->floodSeq);
+   }
+
+   // Check if we've seen this flood before
+   bool isDuplicateFlood(uint16_t source, uint16_t seq) {
+      uint8_t i;
+      for(i = 0; i < floodCacheSize; i++) {
+         if(floodCache[i].nodeId == source) {
+            if(floodCache[i].maxSeq >= seq) {
+               return TRUE; // Duplicate
+            }
+            floodCache[i].maxSeq = seq; // Update to new max
+            return FALSE;
+         }
+      }
+      
+      // New source, add to cache if space
+      if(floodCacheSize < MAX_FLOOD_CACHE_ENTRIES) {
+         floodCache[floodCacheSize].nodeId = source;
+         floodCache[floodCacheSize].maxSeq = seq;
+         floodCacheSize++;
+      }
+      return FALSE;
+   }
 
    event void CommandHandler.ping(uint16_t destination, uint8_t *payload){
       dbg(GENERAL_CHANNEL, "PING EVENT \n");
@@ -126,6 +201,11 @@ implementation{
       call NeighborDiscovery.printNeighbors();
    }
 
+   event void CommandHandler.startFlood(uint16_t dest, uint8_t *payload, uint8_t length){
+      dbg(GENERAL_CHANNEL, "Node %d: Received flood command\n", TOS_NODE_ID);
+      call Flooding.startFlood(dest, payload, length);
+   }
+
    event void CommandHandler.printRouteTable(){}
 
    event void CommandHandler.printLinkState(){}
@@ -140,9 +220,10 @@ implementation{
 
    event void CommandHandler.setAppClient(){}
 
-//   command void NeighborDiscovery.findNeighbors(){
-//      dbg(GENERAL_CHANNEL, "===Finding Neighbors===\n");
-//   }
+   event void Flooding.floodReceived(uint16_t source, uint16_t seq, uint8_t *payload, uint8_t length) {
+      dbg(GENERAL_CHANNEL, "Node %d: Received flood from node %d, seq %d, payload: %.*s\n", 
+          TOS_NODE_ID, source, seq, length, payload);
+   }
 
    void makePack(pack *Package, uint16_t src, uint16_t dest, uint16_t TTL, uint16_t protocol, uint16_t seq, uint8_t* payload, uint8_t length){
       Package->src = src;
