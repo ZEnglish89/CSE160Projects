@@ -34,11 +34,11 @@ implementation{
    FloodCacheEntry floodCache[MAX_FLOOD_CACHE_ENTRIES];
    uint8_t floodCacheSize = 0;
 
-   // Prototypes
    void makePack(pack *pkg, uint16_t srcAddr, uint16_t destAddr, uint16_t timeToLive, uint16_t prot, uint16_t seqNum, uint8_t *payld, uint8_t payldLen);
    void handleFloodPacket(pack* receivedPkt, uint8_t pktLen, uint16_t senderId);
    void forwardFloodToNeighbors(pack* floodPkt, uint16_t senderId);
    bool isDuplicateFlood(uint16_t floodSource, uint16_t seqNum);
+   void sendFloodAck(uint16_t dest_node, uint16_t seq_num);
 
    event void Boot.booted(){
       call AMControl.start();
@@ -121,15 +121,18 @@ implementation{
    // Handle flooding packets with neighbor-based forwarding
       // Handle flooding packets with neighbor-based forwarding
       // Handle flooding packets with neighbor-based forwarding
+      // Handle flooding packets with targeted flooding and ACK support
+      // Handle flooding packets with targeted flooding and ACK support
    void handleFloodPacket(pack* receivedPkt, uint8_t pktLen, uint16_t senderId) {
       FloodHeader fh;
-      uint8_t appPayload[PACKET_MAX_PAYLOAD_SIZE - FLOOD_HEADER_SIZE];
+      uint8_t appPayloadLength;
+      uint8_t appPayloadBuffer[PACKET_MAX_PAYLOAD_SIZE - FLOOD_HEADER_SIZE];
       
       // Copy the flooding header from the packet payload
       memcpy(&fh, receivedPkt->payload, FLOOD_HEADER_SIZE);
       
-      dbg(FLOODING_CHANNEL,"Node %d received flood from src %d seq %d TTL %d via node %d\n", 
-          TOS_NODE_ID, fh.floodSrc, fh.floodSeq, fh.floodTTL, senderId);
+      dbg(FLOODING_CHANNEL,"Node %d received flood type %d from src %d dest %d seq %d TTL %d via node %d\n", 
+          TOS_NODE_ID, fh.floodType, fh.floodSrc, fh.floodDest, fh.floodSeq, fh.floodTTL, senderId);
       
       // Check for duplicates
       if(isDuplicateFlood(fh.floodSrc, fh.floodSeq)) {
@@ -143,16 +146,61 @@ implementation{
          return;
       }
       
-      // Copy application payload to a separate buffer
-      memcpy(appPayload, receivedPkt->payload + FLOOD_HEADER_SIZE, 
-             PACKET_MAX_PAYLOAD_SIZE - FLOOD_HEADER_SIZE);
+      // Handle ACK floods
+      if(fh.floodType == FLOOD_TYPE_ACK) {
+         // If this ACK is meant for us, signal the application
+         if(fh.floodDest == TOS_NODE_ID) {
+            dbg(FLOODING_CHANNEL,"Node %d received ACK for flood seq %d from node %d\n", 
+                TOS_NODE_ID, fh.floodSeq, fh.floodSrc);
+            signal Flooding.floodAckReceived(fh.floodSrc, fh.floodSeq);
+            // ACK reached its destination - don't forward further
+            return;
+         }
+         
+         // If we're not the destination, check TTL and forward the ACK
+         if(fh.floodTTL == 0) {
+            dbg(FLOODING_CHANNEL,"Node %d dropping ACK flood - TTL expired\n", TOS_NODE_ID);
+            return;
+         }
+         
+         // Decrement TTL and update packet for forwarding
+         fh.floodTTL--;
+         memcpy(receivedPkt->payload, &fh, FLOOD_HEADER_SIZE);
+         
+         // Forward ACK to all neighbors EXCEPT the one we received it from
+         forwardFloodToNeighbors(receivedPkt, senderId);
+         dbg(FLOODING_CHANNEL,"Node %d forwarding ACK flood seq %d\n", TOS_NODE_ID, fh.floodSeq);
+         return;
+      }
       
-      // Signal application that we received a flood
-      signal Flooding.floodReceived(fh.floodSrc, fh.floodSeq, 
-                                   appPayload, 
-                                   PACKET_MAX_PAYLOAD_SIZE - FLOOD_HEADER_SIZE);
+      // Handle DATA floods (original logic remains the same)
+      // Check if this flood is targeted and we're not the destination
+      if(fh.floodDest != 0 && fh.floodDest != TOS_NODE_ID) {
+         // This is a targeted flood but we're not the destination - just forward
+         dbg(FLOODING_CHANNEL,"Node %d forwarding targeted flood (not for us)\n", TOS_NODE_ID);
+      } else {
+         // We are either the destination or it's a broadcast flood
+         // Calculate application payload length
+         appPayloadLength = PACKET_MAX_PAYLOAD_SIZE - FLOOD_HEADER_SIZE;
+         
+         // Copy application payload to buffer
+         memcpy(appPayloadBuffer, &receivedPkt->payload[FLOOD_HEADER_SIZE], appPayloadLength);
+         
+         // Signal application that we received a flood
+         signal Flooding.floodReceived(fh.floodSrc, fh.floodSeq, appPayloadBuffer, appPayloadLength);
+         
+         // If this is a targeted flood and we're the destination, send ACK
+         if(fh.floodDest != 0 && fh.floodDest == TOS_NODE_ID) {
+            dbg(FLOODING_CHANNEL,"Node %d is destination for targeted flood seq %d, sending ACK\n", 
+                TOS_NODE_ID, fh.floodSeq);
+            // Send ACK back to source
+            sendFloodAck(fh.floodSrc, fh.floodSeq);
+            // Don't forward targeted floods after reaching destination
+            return;
+         }
+      }
       
-      // Decrement TTL and update packet
+      // Decrement TTL and update packet for forwarding
       fh.floodTTL--;
       memcpy(receivedPkt->payload, &fh, FLOOD_HEADER_SIZE);
       
@@ -217,6 +265,36 @@ implementation{
       return FALSE;
    }
 
+      // Send ACK flood
+   void sendFloodAck(uint16_t dest_node, uint16_t seq_num) {
+      pack ackMsg;
+      FloodHeader fh;
+      
+      dbg(FLOODING_CHANNEL,"Node %d sending ACK for seq %d to node %d\n", 
+          TOS_NODE_ID, seq_num, dest_node);
+      
+      // Create ACK flooding header
+      fh.floodSrc = TOS_NODE_ID;
+      fh.floodDest = dest_node;
+      fh.floodSeq = seq_num;
+      fh.floodTTL = MAX_TTL;
+      fh.floodType = FLOOD_TYPE_ACK;
+      
+      // Create ACK packet
+      ackMsg.src = TOS_NODE_ID;
+      ackMsg.dest = AM_BROADCAST_ADDR;
+      ackMsg.seq = 0;
+      ackMsg.TTL = MAX_TTL;
+      ackMsg.protocol = FLOOD_PROTOCOL;
+      
+      // Copy flooding header to payload
+      memcpy(ackMsg.payload, &fh, FLOOD_HEADER_SIZE);
+      
+      // Send ACK flood via broadcast
+      forwardFloodToNeighbors(&ackMsg, TOS_NODE_ID);
+      dbg(FLOODING_CHANNEL,"Node %d sent ACK flood for seq %d\n", TOS_NODE_ID, seq_num);
+   }
+
    event void CommandHandler.ping(uint16_t destAddr, uint8_t *payld){
       dbg(GENERAL_CHANNEL, "PING EVENT \n");
       makePack(&sendPackage, TOS_NODE_ID, destAddr, 0, 0, 0, payld, PACKET_MAX_PAYLOAD_SIZE);
@@ -253,6 +331,11 @@ implementation{
    event void Flooding.floodReceived(uint16_t floodSource, uint16_t seqNum, uint8_t *payld, uint8_t payldLen) {
       dbg(GENERAL_CHANNEL, "Node %d: Received flood from node %d, seq %d, payload: %.*s\n", 
           TOS_NODE_ID, floodSource, seqNum, payldLen, payld);
+   }
+
+   event void Flooding.floodAckReceived(uint16_t source, uint16_t seq) {
+      dbg(GENERAL_CHANNEL, "Node %d: Received ACK from node %d for flood seq %d\n", 
+         TOS_NODE_ID, source, seq);
    }
 
    void makePack(pack *pkg, uint16_t srcAddr, uint16_t destAddr, uint16_t timeToLive, uint16_t prot, uint16_t seqNum, uint8_t* payld, uint8_t payldLen){

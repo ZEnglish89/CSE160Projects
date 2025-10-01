@@ -11,7 +11,6 @@ module FloodingP{
     uses interface Queue<sendInfo*>;
     uses interface Pool<sendInfo>;
     uses interface SimpleSend;
-    // REMOVE THIS: uses interface NeighborDiscovery;
 }
 
 implementation{
@@ -35,12 +34,19 @@ implementation{
         uint8_t totalPayloadSize;
         
         sequenceNumber = getSequence();
-        dbg(FLOODING_CHANNEL,"Node %d starting flood with seq %d\n", TOS_NODE_ID, sequenceNumber);
+        
+        if(dest_addr == 0) {
+            dbg(FLOODING_CHANNEL,"Node %d starting BROADCAST flood with seq %d\n", TOS_NODE_ID, sequenceNumber);
+        } else {
+            dbg(FLOODING_CHANNEL,"Node %d starting TARGETED flood to node %d with seq %d\n", TOS_NODE_ID, dest_addr, sequenceNumber);
+        }
         
         // Create flooding header
         fh.floodSrc = TOS_NODE_ID;
+        fh.floodDest = dest_addr;
         fh.floodSeq = sequenceNumber;
         fh.floodTTL = MAX_TTL;
+        fh.floodType = FLOOD_TYPE_DATA;
         
         // Calculate available space for application payload
         totalPayloadSize = FLOOD_HEADER_SIZE + pld_len;
@@ -50,12 +56,12 @@ implementation{
         
         // Create packet
         floodMsg.src = TOS_NODE_ID;
-        floodMsg.dest = AM_BROADCAST_ADDR;  // Use broadcast for initial flood
-        floodMsg.seq = 0; // Not used for flooding
+        floodMsg.dest = AM_BROADCAST_ADDR;
+        floodMsg.seq = 0;
         floodMsg.TTL = MAX_TTL;
         floodMsg.protocol = FLOOD_PROTOCOL;
         
-        // Copy flooding header to payload using memcpy to avoid pointer issues
+        // Copy flooding header to payload
         memcpy(floodMsg.payload, &fh, FLOOD_HEADER_SIZE);
         
         // Copy application payload after flooding header
@@ -63,7 +69,11 @@ implementation{
         
         // Send initial flood via broadcast
         call SimpleSend.send(floodMsg, AM_BROADCAST_ADDR);
-        dbg(FLOODING_CHANNEL,"Node %d initiated flood seq %d via broadcast\n", 
-            TOS_NODE_ID, sequenceNumber);
+        
+        if(dest_addr == 0) {
+            dbg(FLOODING_CHANNEL,"Node %d initiated BROADCAST flood seq %d\n", TOS_NODE_ID, sequenceNumber);
+        } else {
+            dbg(FLOODING_CHANNEL,"Node %d initiated TARGETED flood seq %d to node %d\n", TOS_NODE_ID, sequenceNumber, dest_addr);
+        }
     }
 }

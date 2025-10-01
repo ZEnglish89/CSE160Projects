@@ -129,6 +129,11 @@ class TestSim:
     def flood(self, source, msg):
         payload = chr(0) + msg  # 0 means broadcast to all nodes
         self.sendCMD(self.CMD_FLOOD, source, payload)
+
+    def targetFlood(self, source, destination, msg):
+        # Format: first byte is destination, rest is message
+        payload = chr(destination) + msg
+        self.sendCMD(self.CMD_FLOOD, source, payload)
     
     def neighborDISC(self, source):
         self.sendCMD(self.CMD_NEIGHBOR_DISC, source, "neighbor command")
@@ -164,24 +169,31 @@ def main():
         s.neighborDMP(node_id)
         s.runTime(1000);  # Small delay between commands
     
-    s.runTime(500000);  # Give time for all print commands to execute
+    s.runTime(10000);  # Give time for all print commands to execute
 
     print "=== STARTING FLOOD TEST ==="
     print "Node 1 flooding message: 'HELLO_FLOOD'"
     s.flood(1, "HELLO_FLOOD")
     
     # Let the flood propagate through the network
-    s.runTime(1000000);  # 10 seconds for flood propagation
+    s.runTime(100000);  # 10 seconds for flood propagation
     
     # Test 3: Start another flood from a different node
     print "Node 5 flooding message: 'SECOND_FLOOD'"
     s.flood(5, "SECOND_FLOOD")
     
-    s.runTime(1000000);  # 10 more seconds
+    s.runTime(100000);  # 10 more seconds
     
     # Test 4: Verify flood reached all nodes by checking debug output
     print "=== FLOOD TEST COMPLETE ==="
     print "Check the output above for flood reception messages"
+
+    # Test both broadcast and targeted flooding:
+    print "=== Testing Targeted Flooding ==="
+    print "Node 1 flooding targeted message to node 9"
+    s.targetFlood(1, 9, "TARGETED_TO_9")
+
+    s.runTime(100000)  # Wait for flood and ACK
     
     # Optional: Dump neighbor tables again to see if anything changed
     print "=== FINAL NEIGHBOR TABLES ==="
@@ -189,7 +201,7 @@ def main():
         s.neighborDMP(node_id)
         s.runTime(500);
     
-    s.runTime(50000);  # Final wait
+    s.runTime(10000);  # Final wait
 
 if __name__ == '__main__':
     main()
