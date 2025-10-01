@@ -20,7 +20,7 @@ implementation{
 
     uint16_t trackPackets[256];
 
-    command void initializeFlooding(){
+    command void Flooding.initializeFlooding(){
         //This table will keep track of what sequence numbers have already been seen.
         //dbg(FLOODING_CHANNEL,"setting up Flooding table for node %d\n", TOS_NODE_ID);
         
@@ -32,9 +32,9 @@ implementation{
         dbg(FLOODING_CHANNEL,"Flooding table set up for node %d.\n", TOS_NODE_ID);
     }
 
-    command error_t Flooding.startFlood(uint8_t dest,uint8_t *payload){
+    command void Flooding.startFlood(uint8_t dest,uint8_t *payload, uint8_t length){
         uint8_t sequenceNumber = getSequence();
-        dbg(FLOODING_CHANNEL,"Starting flooding with sequence number %d from Node %d.\n", sequenceNumber,TOS_NODE_ID);
+//        dbg(FLOODING_CHANNEL,"Starting flooding with sequence number %d from Node %d.\n", sequenceNumber,TOS_NODE_ID);
         //Make the packet, I'm doing each value manually to make sure I don't lose track of anything.
         
         pack floodMsg;
@@ -42,10 +42,10 @@ implementation{
         floodMsg.src = TOS_NODE_ID;//This node is the source.
         floodMsg.dest = dest;//The destination is passed in.
         floodMsg.seq = sequenceNumber;//Get a new sequence number for this flood.
-        floodMsg.TTL = packet.MAX_TTL; // Arbitrary TTL value for flooding, setting it to the max allowed in the header for now.
+        floodMsg.TTL = MAX_TTL; // Arbitrary TTL value for flooding, setting it to the max allowed in the header for now.
         //This will almost certainly result in packets living for longer than they need to, but for now it's a start.
-        floodMsg.Protocol = 0; // A ping is probably a good thing to set this to for now? It requests a response, after all.
-        floodMsg.payload = payload;//Payload is passed in.
+        floodMsg.protocol = 0; // A ping is probably a good thing to set this to for now? It requests a response, after all.
+        memcpy(floodMsg.payload,payload,length);//Payload is set from the arguement.
 
         //This should now give us a packet that is ready to send to commence the flooding process.
         //The first node involved in flooding can simply broadcast, as it did not receive the packet from anyone else

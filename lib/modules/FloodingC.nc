@@ -13,5 +13,5 @@ implementation{
     Flooding = FloodingP.Flooding;
 
     components new SimpleSendC(AM_PACK);
-    NeighborDiscoveryP.SimpleSend -> SimpleSendC;
+    FloodingP.SimpleSend -> SimpleSendC;
 }

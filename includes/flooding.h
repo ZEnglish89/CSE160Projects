@@ -15,3 +15,5 @@ int getSequence(){
     }
     return sequenceGiven;
 }
+
+#endif

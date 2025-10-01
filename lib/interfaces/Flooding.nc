@@ -1,6 +1,6 @@
 
 interface Flooding{
-   command error_t startFlood(uint8_t dest,uint8_t *payload);
+   command void startFlood(uint8_t dest,uint8_t *payload,uint8_t length);
    command void initializeFlooding();
 
 }
