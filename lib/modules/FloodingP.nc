@@ -31,8 +31,10 @@ implementation{
         //initializing some empty variables for later
         uint16_t sequenceNumber;
         pack floodMsg;
-        FloodHeader fh;
         uint8_t totalPayloadSize;
+        //Because I want to avoid an entire new header, we're just packing in one value: the original sender.
+        //That should be the only thing we need that isn't tracked by the original packet header.
+        nx_uint16_t originalSrc;
         
         //new sequence number babyyyy
         sequenceNumber = getSequence();
@@ -45,35 +47,32 @@ implementation{
         }
         
         // Create flooding header
-        fh.floodSrc = TOS_NODE_ID;
-        fh.floodDest = dest_addr;
-        fh.floodSeq = sequenceNumber;
-        fh.floodTTL = MAX_TTL;
-        fh.floodType = FLOOD_TYPE_DATA;
-        
-        // Calculate available space for application payload
-        totalPayloadSize = FLOOD_HEADER_SIZE + pld_len;
-        if(totalPayloadSize > PACKET_MAX_PAYLOAD_SIZE) {
-            //if there's no space, reduce the payload down to the maximum. It's not exactly as fancy as IP fragmenting I admit, but anything more elegant is out of scope for this project.
-            pld_len = PACKET_MAX_PAYLOAD_SIZE - FLOOD_HEADER_SIZE;
-        }
-        
-        // Create packet
         floodMsg.src = TOS_NODE_ID;
-        floodMsg.dest = AM_BROADCAST_ADDR;
-        floodMsg.seq = 0;//These are filler values because our code is actually using the ones contained within the flooding header.
+        originalSrc = TOS_NODE_ID;
+        floodMsg.dest = dest_addr;
+        floodMsg.seq = sequenceNumber;
         floodMsg.TTL = MAX_TTL;
+        
+        // Calculate available payload size(the maximum size minus the size of the originalSrc field).
+        totalPayloadSize = pld_len + sizeof(nx_uint16_t);
+        if(totalPayloadSize > PACKET_MAX_PAYLOAD_SIZE){
+            pld_len = PACKET_MAX_PAYLOAD_SIZE - sizeof(nx_uint16_t);
+            totalPayloadSize = PACKET_MAX_PAYLOAD_SIZE;
+        }        
+
+
         //we entertained making a new protocal to have flooding operate more independently, but the assignment documents
-        //say that we should be using pings and pingreplies.
+        //say that we should be using pings and pingreplies, it works out pretty well: floods are pings, ACKs are pingreplies.
         floodMsg.protocol = PROTOCOL_PING;
         
-        // Copy flooding header to payload
-        memcpy(floodMsg.payload, &fh, FLOOD_HEADER_SIZE);
+        // Copy original source to payload
+        memcpy(floodMsg.payload, &originalSrc, sizeof(nx_uint16_t));
         
-        // Copy application payload after flooding header
-        memcpy(floodMsg.payload + FLOOD_HEADER_SIZE, pld, pld_len);
+        // Copy payload after the source
+        memcpy(floodMsg.payload + sizeof(nx_uint16_t), pld, pld_len);
         
-        // Send initial flood via broadcast
+        // Send initial flood via broadcast. No need to send it more intelligently, because it's the first instance of the flood
+        // and we just want it to go everywhere.
         call SimpleSend.send(floodMsg, AM_BROADCAST_ADDR);
         
         if(dest_addr == 0) {
