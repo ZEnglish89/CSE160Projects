@@ -151,7 +151,7 @@ class TestSim:
 def main():
     s = TestSim();
     s.runTime(10);
-    s.loadTopo("example.topo");
+    s.loadTopo("long_line.topo");
     s.loadNoise("no_noise.txt");
     s.bootAll();
     s.addChannel(s.COMMAND_CHANNEL);
@@ -160,9 +160,31 @@ def main():
     #s.addChannel(s.NEIGHBOR_CHANNEL);
 
     # Let neighbor discovery run for a while
-    s.runTime(12000);  # 2 minutes to allow several discovery cycles
+    s.runTime(120000)
     
-    # Then dump neighbor tables for all nodes
+
+    s.neighborDMP(5)    
+
+    s.runTime(2000)
+
+    s.flood(3,18,"Test1")
+
+    s.runTime(2000)
+    
+    s.moteOff(5)
+
+    s.runTime(20000)
+
+    s.flood(4,7,"Test2")
+
+    s.runTime(2000)
+
+    s.neighborDMP(6)
+
+    s.runTime(10000)  # Final wait
+
+    
+"""    # Then dump neighbor tables for all nodes
     print "=== DUMPING NEIGHBOR TABLES ==="
     for node_id in s.moteids:
         print "Requesting neighbor dump for node", node_id
@@ -200,8 +222,7 @@ def main():
     for node_id in s.moteids:
         s.neighborDMP(node_id)
         s.runTime(500);
-    
-    s.runTime(10000);  # Final wait
+"""
 
 if __name__ == '__main__':
     main()
