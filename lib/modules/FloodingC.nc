@@ -12,4 +12,7 @@ implementation{
 
     components new SimpleSendC(AM_PACK);
     FloodingP.SimpleSend -> SimpleSendC;
+
+    components new NeighborDiscoveryC(AM_PACK);
+    FloodingP.NeighborDiscovery -> NeighborDiscoveryC;
 }
