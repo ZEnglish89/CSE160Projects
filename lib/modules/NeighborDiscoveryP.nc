@@ -103,6 +103,35 @@ implementation {
         post search();
     }
 
+	command void NeighborDiscovery.handleNeighborPacket(pack* myMsg,pack responseMsg,uint8_t responsePayload[14]){
+         
+		 // Check if this is a neighbor discovery packet
+         if(strncmp((char*)myMsg->payload, "NEIGHBOR_DISC", 13) == 0) {
+			dbg(NEIGHBOR_CHANNEL, "Received neighbor discovery from node %d\n", myMsg->src);
+               
+			// Send response back
+			responseMsg.src = TOS_NODE_ID;
+			responseMsg.dest = myMsg->src;
+			responseMsg.TTL = 1;
+			responseMsg.protocol = 1;
+			
+			memcpy(responsePayload, "NEIGHBOR_RESP", 13);
+			responsePayload[13] = '\0';
+			memcpy(responseMsg.payload, responsePayload, 14);
+			
+			call SimpleSend.send(responseMsg, myMsg->src);
+			dbg(NEIGHBOR_CHANNEL, "Sent neighbor response to node %d\n", myMsg->src);
+			
+         }
+         // Otherwise this must be a neighbor discovery response
+         else{
+               dbg(NEIGHBOR_CHANNEL, "Received neighbor response from node %d\n", myMsg->src);
+         }
+
+		// Add the discoverer to our neighbor table regardless of which type it is.
+		call NeighborDiscovery.neighborUpdate(myMsg->src);
+	}
+
     command void NeighborDiscovery.neighborUpdate(uint16_t nodeId) {
         addNeighbor(nodeId);
         // Comment out this debug to reduce spam, since it's called frequently

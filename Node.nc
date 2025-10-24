@@ -60,41 +60,19 @@ implementation{
       
       if(len == sizeof(pack)) {
          myMsg = (pack*) payload;
-         
-         // Check if this is a neighbor discovery packet
-         if(strncmp((char*)myMsg->payload, "NEIGHBOR_DISC", 13) == 0) {
-               dbg(NEIGHBOR_CHANNEL, "Received neighbor discovery from node %d\n", myMsg->src);
-               
-               // If we're not the sender, add to our neighbor table and respond
-               if(myMsg->src != TOS_NODE_ID) {
-                  // Send response back
-                  responseMsg.src = TOS_NODE_ID;
-                  responseMsg.dest = myMsg->src;
-                  responseMsg.TTL = 1;
-                  responseMsg.protocol = 1;
-                  
-                  memcpy(responsePayload, "NEIGHBOR_RESP", 13);
-                  responsePayload[13] = '\0';
-                  memcpy(responseMsg.payload, responsePayload, 14);
-                  
-                  call Sender.send(responseMsg, myMsg->src);
-                  dbg(NEIGHBOR_CHANNEL, "Sent neighbor response to node %d\n", myMsg->src);
-                  
-                  // Add the discoverer to our neighbor table
-                  call NeighborDiscovery.neighborUpdate(myMsg->src);
-               }
-               return msg;
-         }
-         // Check if this is a neighbor discovery response
-         else if(strncmp((char*)myMsg->payload, "NEIGHBOR_RESP", 13) == 0) {
-               dbg(NEIGHBOR_CHANNEL, "Received neighbor response from node %d\n", myMsg->src);
-               
-               // Add the responder to our neighbor table
-               if(myMsg->src != TOS_NODE_ID) {
-                  call NeighborDiscovery.neighborUpdate(myMsg->src);
-               }
-               return msg;
-         }
+
+		//if this is either a Neighbordiscovery message or a Neighbordiscovery response
+		if((strncmp((char*)myMsg->payload, "NEIGHBOR_DISC", 13) == 0)||(strncmp((char*)myMsg->payload, "NEIGHBOR_RESP", 13) == 0)){ 
+			//if we're the sender, just completely ignore it and move on.
+			//Note that removing this if statement doesn't seem to affect functionality, there's a chance
+			//that the nodes aren't receiving their own packets regardless, but there's no downside to
+			//leaving this here to catch edge cases.
+			if(myMsg->src!=TOS_NODE_ID){
+				//let the relevant module handle it.
+				call NeighborDiscovery.handleNeighborPacket(myMsg,responseMsg,responsePayload);
+			}
+			return msg;
+		}
          // otherwise, this is a flooding packet. based on our current setup, if it's not used for neighbordiscovery it must be a flood.
          else{
                dbg(FLOODING_CHANNEL, "Node %d: Received flooding packet from node %d, handling\n", TOS_NODE_ID, myMsg->src);
