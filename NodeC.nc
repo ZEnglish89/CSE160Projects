@@ -37,4 +37,7 @@ implementation {
 
     components new NeighborDiscoveryC(AM_PACK);
     Node.NeighborDiscovery -> NeighborDiscoveryC;
+
+    components LinkStateC;
+    Node.LinkState -> LinkStateC;
 }
