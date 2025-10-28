@@ -54,10 +54,18 @@ implementation{
 			}
 		}
 		dbg(ROUTING_CHANNEL,"Routing table set up for node %d\n",TOS_NODE_ID);
+		call LinkState.startRouting();
 	}
 
 	command void LinkState.handleRoutingPacket(uint8_t* buffer,uint8_t len){
 		dbg(ROUTING_CHANNEL,"handleRoutingPacket called for node %d\n",TOS_NODE_ID);
+	}
+
+//Frankly I'm not sure if this will work. I might be passing the payload incorrectly,
+//and the payload might be too large for our packet structure.
+	command void LinkState.startRouting(){
+		//confirmed this does not pass properly, I'm unsure how to fix it right now.
+		call Flooding.startFlood(0,&routes,sizeof(uint16_t)*2*numNodes,PROTOCOL_LINKSTATE);
 	}
 
 

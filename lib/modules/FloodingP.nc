@@ -163,6 +163,7 @@ implementation{
 
          //if this is a LINKSTATE packet, we have additional work to do.
          if (receivedPkt->protocol == PROTOCOL_LINKSTATE){
+            //This is not passing properly, but at the moment I'm unsure how to fix it.
             call LinkState.handleRoutingPacket(&appPayloadBuffer,appPayloadLength);
          }
          
