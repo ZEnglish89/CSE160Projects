@@ -93,7 +93,8 @@ implementation {
             neighbors[neighborCount] = nodeId;
             neighborCount++;
             dbg(NEIGHBOR_CHANNEL, "Node %d added NEW neighbor %d. Total neighbors: %d\n", TOS_NODE_ID, nodeId, neighborCount);
-            signal NeighborDiscovery.neighborsChanged();
+            signal NeighborDiscovery.neighborsChanged(neighborCount);
+//            dbg(ROUTING_CHANNEL,"neighborsChanged signaled, should see dbg for neighborCount changing\n");
         } else {
             dbg(NEIGHBOR_CHANNEL, "Node %d neighbor table full, cannot add %d\n", TOS_NODE_ID, nodeId);
         }
@@ -142,6 +143,7 @@ implementation {
     command void NeighborDiscovery.printNeighbors() {
         uint8_t i;
         dbg(GENERAL_CHANNEL, "=== Node %d Neighbor Table ===\n", TOS_NODE_ID);
+        dbg(GENERAL_CHANNEL, "=== Total number of Neighbors: %d ===\n",neighborCount);
         if(neighborCount == 0) {
             dbg(GENERAL_CHANNEL, "No neighbors found\n");
         } else {
@@ -153,12 +155,16 @@ implementation {
     }
 
     command uint8_t NeighborDiscovery.getNeighborCount() {
+        dbg(ROUTING_CHANNEL,"NeighborCount returning %d\n",neighborCount);
         return neighborCount;
+//        return 1;
     }
 
     command uint16_t NeighborDiscovery.getNeighbor(uint8_t neighborIndex) {
         if(neighborIndex < neighborCount) {
+            dbg(ROUTING_CHANNEL,"neighbor returning %d\n",neighbors[neighborIndex]);
             return neighbors[neighborIndex];
+//            return 3;
         }
         return 0;
     }

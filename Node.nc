@@ -138,6 +138,10 @@ implementation{
          TOS_NODE_ID, source, seq);
    }
 
+   //This does nothing, we just need to include it because all events must exist when their module is used.
+   //This event is *actually* useful in LinkStateP.nc
+   event void NeighborDiscovery.neighborsChanged(uint8_t neighborCount){}
+
    void makePack(pack *pkg, uint16_t srcAddr, uint16_t destAddr, uint16_t timeToLive, uint16_t prot, uint16_t seqNum, uint8_t* payld, uint8_t payldLen){
       pkg->src = srcAddr;
       pkg->dest = destAddr;

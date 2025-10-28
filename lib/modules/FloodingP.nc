@@ -177,7 +177,7 @@ implementation{
             }
             dbg(FLOODING_CHANNEL, "\n");
             
-            call LinkState.handleRoutingPacket(&receivedPkt->payload[FLOOD_HEADER_SIZE], appPayloadLength);
+            call LinkState.handleRoutingPacket(&(receivedPkt->payload[FLOOD_HEADER_SIZE]), appPayloadLength);
          }
          
          // Signal application that we received a flood
@@ -298,15 +298,8 @@ implementation{
       forwardFloodToNeighbors(&ackMsg, TOS_NODE_ID);
       dbg(FLOODING_CHANNEL,"Node %d sent ACK flood for seq %d\n", TOS_NODE_ID, seq_num);
    }
-/*
-   event void Flooding.floodReceived(uint16_t floodSource, uint16_t seqNum, uint8_t *payld, uint8_t payldLen) {
-      dbg(GENERAL_CHANNEL, "Node %d: Received flood from node %d, seq %d, payload: %.*s\n", 
-          TOS_NODE_ID, floodSource, seqNum, payldLen, payld);
-   }
 
-   event void Flooding.floodAckReceived(uint16_t source, uint16_t seq) {
-      dbg(GENERAL_CHANNEL, "Node %d: Received ACK from node %d for flood seq %d\n", 
-         TOS_NODE_ID, source, seq);
-   }
-*/
+   //This does nothing, we just need to include it because all events must exist when their module is used.
+   //This event is *actually* useful in LinkStateP.nc
+   event void NeighborDiscovery.neighborsChanged(uint8_t neighborCount){}
 }

@@ -240,11 +240,11 @@ def main():
     s.loadTopo("example.topo");
     s.loadNoise("no_noise.txt");
     s.bootAll();
-    s.addChannel(s.COMMAND_CHANNEL);
+#    s.addChannel(s.COMMAND_CHANNEL);
     s.addChannel(s.GENERAL_CHANNEL);
-    s.addChannel(s.FLOODING_CHANNEL);
-    s.addChannel(s.ROUTING_CHANNEL);
-    s.addChannel(s.NEIGHBOR_CHANNEL);
+#    s.addChannel(s.FLOODING_CHANNEL);
+#    s.addChannel(s.ROUTING_CHANNEL);
+#    s.addChannel(s.NEIGHBOR_CHANNEL);
 
     # Let neighbor discovery run for a while
     s.runTime(12000);  # 2 minutes to allow several discovery cycles

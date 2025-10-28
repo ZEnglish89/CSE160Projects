@@ -18,6 +18,7 @@ module LinkStateP{
 }
 
 implementation {
+	uint8_t neighborCount;
 	// Define LSA structure with uint8_t for everything
 	typedef struct LSA {
 		uint8_t nodeId;
@@ -75,14 +76,16 @@ implementation {
 			TOS_NODE_ID, receivedLsa.nodeId);
 		
 		updateLsDatabase(&receivedLsa);
+		dbg(ROUTING_CHANNEL,"Calling computeRoutes()\n");
 		computeRoutes();
 	}
 
 	command void LinkState.startRouting() {
 		LSA myLsa;
-		uint8_t neighborCount;
+//		uint8_t neighborCount;
 		uint8_t i;
 		uint16_t neighbor;
+		dbg(ROUTING_CHANNEL,"startRouting() running\n");
 		
 		if (!routingInitialized) {
 			return;
@@ -194,8 +197,10 @@ implementation {
 		}
 		
 		neighborCount = call NeighborDiscovery.getNeighborCount();
+		dbg(ROUTING_CHANNEL,"getNeighborCount called, count is: %d\n",neighborCount);
 		for(i = 0; i < neighborCount; i++) {
 			neighbor = call NeighborDiscovery.getNeighbor(i);
+			dbg(ROUTING_CHANNEL,"getNeighbor called\n");
 			if(neighbor >= 1 && neighbor <= 19) {
 				routes[neighbor-1][0] = neighbor;
 				routes[neighbor-1][1] = 1;
@@ -230,5 +235,13 @@ implementation {
 	}
 
 	event void Flooding.floodAckReceived(uint16_t source, uint16_t seq) {
+	}
+
+	event void NeighborDiscovery.neighborsChanged(uint8_t externalNeighborCount){
+		//I was hoping that this would be extremely useful, but the code appears to outright do nothing.
+		//when the event is signaled from NeighborDiscoveryP.nc, these lines of code are never executed.
+//		dbg(ROUTING_CHANNEL,"neighborsChanged successfully signaled\n");
+//		neighborCount = externalNeighborCount;
+//		dbg(ROUTING_CHANNEL,"neighborCount changed, it is now: %d\n",neighborCount);
 	}
 }

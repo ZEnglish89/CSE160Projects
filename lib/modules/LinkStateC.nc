@@ -4,7 +4,6 @@
 
 configuration LinkStateC{
     provides interface LinkState;
-    uses interface NeighborDiscovery;
 }
 
 implementation{
@@ -14,7 +13,8 @@ implementation{
     components new SimpleSendC(AM_PACK);
     LinkStateP.SimpleSend -> SimpleSendC;
 
-    LinkStateP.NeighborDiscovery -> NeighborDiscovery;
+    components new NeighborDiscoveryC(AM_PACK);
+    LinkStateP.NeighborDiscovery -> NeighborDiscoveryC;
 
     components FloodingC;
     LinkStateP.Flooding -> FloodingC;
