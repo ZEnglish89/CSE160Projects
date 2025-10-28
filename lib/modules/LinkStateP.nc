@@ -1,6 +1,3 @@
-
-//again, start with the same includes as FloodingP.nc, we can make changes as necessary later but
-//this is a useful baseline
 #include <Timer.h>
 #include "../../includes/CommandMsg.h"
 #include "../../includes/command.h"
@@ -10,67 +7,228 @@
 #include "../../includes/sendInfo.h"
 
 module LinkStateP{
-    provides interface LinkState;
-    
+	provides interface LinkState;
+
 	uses interface Queue<sendInfo*>;
-	uses interface Pool<sendInfo*>;
-
-	//we may or may not need this? Flooding might just handle
-	//everything we would otherwise use this for, but I'm not sure yet so we
-	//may as well include it for now.
+	uses interface Pool<sendInfo>;
 	uses interface SimpleSend;
-
 	uses interface NeighborDiscovery;
-
 	uses interface Flooding;
+	uses interface Timer<TMilli> as LsTimer;
 }
 
-implementation{
+implementation {
+	// Define LSA structure with uint8_t for everything
+	typedef struct LSA {
+		uint8_t nodeId;
+		uint8_t seqNum;
+		uint8_t neighbors[6];
+		uint8_t neighborCount;
+	} LSA;
 
-	//allocating space for 19 total nodes,
-	//because that's how many the largest topography has.
-	const uint8_t numNodes = 19;
-	//we're going to use this as a hash table, where the index [destNodeID-1][0] will
-	//contain the value [nextHopID], that way we can just forward packets to the value
-	//of the table
-	//[destNodeID-1][1] will contain the length of the path, so that we can implement Dijkstra's.
-	uint16_t routes[19][2];
+	// Function declarations
+	void updateLsDatabase(LSA* newLsa);
+	void computeRoutes();
 
-	command void LinkState.initializeRouting(){
-		//setting up initial values for the routing table.
+	// Global variables
+	uint8_t routes[19][2];
+	LSA lsDatabase[19];
+	uint8_t lsDatabaseSize = 0;
+	uint8_t currentSeqNum = 0;
+	bool routingInitialized = FALSE;
+
+	command void LinkState.initializeRouting() {
 		uint8_t i;
-		for(i = 0;i<numNodes;i++){
-			if (i+1!=TOS_NODE_ID){
-				//we will use [numNodes+1] to signify an unknown length or a node that's not in the table, since you can never route through a
-				//node that doesn't exist. We'll just need to include checks for this later, of course.
-				routes[i][0] = numNodes+1;
-				//similarly, -1 will represent an infinite path length, for those nodes that are not known yet.
-				routes[i][1] = -1;
-			}
-			//if the current node is ourselves, we simply show that we route it to ourselves and note a length of zero.
-			else{
+		for(i = 0; i < 19; i++) {
+			if (i+1 != TOS_NODE_ID) {
+				routes[i][0] = 0xFF;
+				routes[i][1] = 0xFF;
+			} else {
 				routes[i][0] = TOS_NODE_ID;
 				routes[i][1] = 0;
 			}
 		}
-		dbg(ROUTING_CHANNEL,"Routing table set up for node %d\n",TOS_NODE_ID);
+		
+		lsDatabaseSize = 0;
+		currentSeqNum = 0;
+		routingInitialized = TRUE;
+		
+		// Wait longer before sending first LSA to allow neighbor discovery
+		call LsTimer.startOneShot(120000);  // 2 minutes first time
+		// Then periodic every 60 seconds
+		call LsTimer.startPeriodic(60000);
+		
+		dbg(ROUTING_CHANNEL, "Node %d: Routing initialized, first LSA in 2 minutes\n", TOS_NODE_ID);
+	}
+
+	command void LinkState.handleRoutingPacket(uint8_t* buffer, uint8_t len) {
+		LSA receivedLsa;
+		
+		if (len < sizeof(LSA)) {
+			dbg(ROUTING_CHANNEL, "Node %d: Invalid LSA size\n", TOS_NODE_ID);
+			return;
+		}
+		
+		memcpy(&receivedLsa, buffer, sizeof(LSA));
+		
+		dbg(ROUTING_CHANNEL, "Node %d: Received LSA from node %d\n", 
+			TOS_NODE_ID, receivedLsa.nodeId);
+		
+		updateLsDatabase(&receivedLsa);
+		computeRoutes();
+	}
+
+	command void LinkState.startRouting() {
+		LSA myLsa;
+		uint8_t neighborCount;
+		uint8_t i;
+		uint16_t neighbor;
+		
+		if (!routingInitialized) {
+			return;
+		}
+	
+		neighborCount = call NeighborDiscovery.getNeighborCount();
+
+		if (neighborCount == 0) {
+			dbg(ROUTING_CHANNEL, "Node %d: No neighbors yet, skipping LSA\n", TOS_NODE_ID);
+			return;
+		}
+
+		myLsa.nodeId = TOS_NODE_ID;
+		myLsa.seqNum = currentSeqNum++;
+		
+		dbg(ROUTING_CHANNEL, "Node %d: NeighborDiscovery returned %d neighbors\n", TOS_NODE_ID, neighborCount);
+
+		myLsa.neighborCount = (neighborCount > 6) ? 6 : neighborCount;
+		
+		for(i = 0; i < myLsa.neighborCount; i++) {
+			neighbor = call NeighborDiscovery.getNeighbor(i);
+			dbg(ROUTING_CHANNEL, "Node %d: Neighbor[%d] = %d\n", 
+				TOS_NODE_ID, i, neighbor);
+			myLsa.neighbors[i] = neighbor;
+		}
+		
+		dbg(ROUTING_CHANNEL, "Node %d: sizeof(LSA)=%d, should be 9\n", TOS_NODE_ID, sizeof(LSA));
+
+		if (sizeof(LSA) != 9) {
+			dbg(ROUTING_CHANNEL, "Node %d: ERROR - LSA size is wrong!\n", TOS_NODE_ID);
+		}
+		
+		call Flooding.startFlood(0, (uint8_t*)&myLsa, sizeof(LSA), PROTOCOL_LINKSTATE);
+	}
+
+	command void LinkState.printLinkState() {
+		uint8_t i;
+		uint8_t j;
+		
+		dbg(GENERAL_CHANNEL, "=== Node %d Link State ===\n", TOS_NODE_ID);
+		
+		for(i = 0; i < lsDatabaseSize; i++) {
+			dbg(GENERAL_CHANNEL, "LSA[%d]: Node %d, Neighbors: ", 
+				i, lsDatabase[i].nodeId);
+			for(j = 0; j < lsDatabase[i].neighborCount; j++) {
+				dbg(GENERAL_CHANNEL, "%d ", lsDatabase[i].neighbors[j]);
+			}
+			dbg(GENERAL_CHANNEL, "\n");
+		}
+		dbg(GENERAL_CHANNEL, "=== End Link State ===\n");
+	}
+
+	command void LinkState.printRouteTable() {
+		uint8_t i;
+		uint8_t routeCount = 0;
+		
+		dbg(GENERAL_CHANNEL, "=== Node %d Routing Table ===\n", TOS_NODE_ID);
+		
+		for(i = 0; i < 19; i++) {
+			if(routes[i][0] != 0xFF) {
+				dbg(GENERAL_CHANNEL, "Dest %d -> NextHop %d, Cost %d\n", 
+					i+1, routes[i][0], routes[i][1]);
+				routeCount++;
+			}
+		}
+		
+		if (routeCount == 0) {
+			dbg(GENERAL_CHANNEL, "No routes in table\n");
+		}
+		
+		dbg(GENERAL_CHANNEL, "=== End Route Table ===\n");
+	}
+
+	void updateLsDatabase(LSA* newLsa) {
+		uint8_t i;
+		
+		for(i = 0; i < lsDatabaseSize; i++) {
+			if(lsDatabase[i].nodeId == newLsa->nodeId) {
+				if(newLsa->seqNum > lsDatabase[i].seqNum) {
+					memcpy(&lsDatabase[i], newLsa, sizeof(LSA));
+				}
+				return;
+			}
+		}
+		
+		if(lsDatabaseSize < 19) {
+			memcpy(&lsDatabase[lsDatabaseSize], newLsa, sizeof(LSA));
+			lsDatabaseSize++;
+		}
+	}
+
+	void computeRoutes() {
+		uint8_t neighborCount;
+		uint8_t i;
+		uint8_t j;
+		uint16_t neighbor;
+		LSA* lsa;
+		uint8_t lsaNeighbor;
+		uint8_t newCost;
+		
+		for(i = 0; i < 19; i++) {
+			routes[i][0] = 0xFF;
+			routes[i][1] = 0xFF;
+		}
+		
+		if(TOS_NODE_ID >= 1 && TOS_NODE_ID <= 19) {
+			routes[TOS_NODE_ID-1][0] = TOS_NODE_ID;
+			routes[TOS_NODE_ID-1][1] = 0;
+		}
+		
+		neighborCount = call NeighborDiscovery.getNeighborCount();
+		for(i = 0; i < neighborCount; i++) {
+			neighbor = call NeighborDiscovery.getNeighbor(i);
+			if(neighbor >= 1 && neighbor <= 19) {
+				routes[neighbor-1][0] = neighbor;
+				routes[neighbor-1][1] = 1;
+			}
+		}
+		
+		for(i = 0; i < lsDatabaseSize; i++) {
+			lsa = &lsDatabase[i];
+			
+			for(j = 0; j < lsa->neighborCount; j++) {
+				lsaNeighbor = lsa->neighbors[j];
+				if(lsaNeighbor >= 1 && lsaNeighbor <= 19) {
+					if(routes[lsa->nodeId-1][0] != 0xFF) {
+						newCost = routes[lsa->nodeId-1][1] + 1;
+						if(newCost < routes[lsaNeighbor-1][1]) {
+							routes[lsaNeighbor-1][0] = routes[lsa->nodeId-1][0];
+							routes[lsaNeighbor-1][1] = newCost;
+						}
+					}
+				}
+			}
+		}
+		
+		dbg(ROUTING_CHANNEL, "Node %d: Routes computed\n", TOS_NODE_ID);
+	}
+
+	event void LsTimer.fired() {
 		call LinkState.startRouting();
 	}
 
-	command void LinkState.handleRoutingPacket(uint8_t* buffer,uint8_t len){
-		dbg(ROUTING_CHANNEL,"handleRoutingPacket called for node %d\n",TOS_NODE_ID);
+	event void Flooding.floodReceived(uint16_t floodSource, uint16_t seqNum, uint8_t *payld, uint8_t payldLen) {
 	}
 
-//Frankly I'm not sure if this will work. I might be passing the payload incorrectly,
-//and the payload might be too large for our packet structure.
-	command void LinkState.startRouting(){
-		//confirmed this does not pass properly, I'm unsure how to fix it right now.
-		call Flooding.startFlood(0,&routes,sizeof(uint16_t)*2*numNodes,PROTOCOL_LINKSTATE);
+	event void Flooding.floodAckReceived(uint16_t source, uint16_t seq) {
 	}
-
-
-   event void Flooding.floodReceived(uint16_t floodSource, uint16_t seqNum, uint8_t *payld, uint8_t payldLen) {}
-
-   event void Flooding.floodAckReceived(uint16_t source, uint16_t seq) {}
-
 }

@@ -43,27 +43,31 @@ implementation{
 
     command void Flooding.startFlood(uint16_t dest_addr, uint8_t *pld, uint8_t pld_len, nx_uint8_t protocol){
         //initializing some empty variables for later
-        uint16_t sequenceNumber;
-        pack floodMsg;
-        FloodHeader fh;
-        uint8_t totalPayloadSize;
-        
-        //new sequence number babyyyy
-        sequenceNumber = getSequence();
-        
-        //announce who we are and what we're starting
-        if(dest_addr == 0) {
+         uint16_t sequenceNumber;
+         pack floodMsg;
+         FloodHeader fh;
+         uint8_t totalPayloadSize;
+         
+         //new sequence number babyyyy
+         sequenceNumber = getSequence();
+         
+         //announce who we are and what we're starting
+         if(dest_addr == 0) {
             dbg(FLOODING_CHANNEL,"Node %d starting BROADCAST flood with seq %d\n", TOS_NODE_ID, sequenceNumber);
-        } else {
+         } else {
             dbg(FLOODING_CHANNEL,"Node %d starting TARGETED flood to node %d with seq %d\n", TOS_NODE_ID, dest_addr, sequenceNumber);
-        }
-        
-        // Create flooding header
-        fh.floodSrc = TOS_NODE_ID;
-        fh.floodDest = dest_addr;
-        fh.floodSeq = sequenceNumber;
-        fh.floodTTL = MAX_TTL;
-        fh.floodType = FLOOD_TYPE_DATA;
+         }
+         
+         // ADD THIS DEBUG LINE HERE:
+         dbg(FLOODING_CHANNEL, "Node %d: Flooding - payload_len=%d, protocol=%d\n", 
+            TOS_NODE_ID, pld_len, protocol);
+         
+         // Create flooding header
+         fh.floodSrc = TOS_NODE_ID;
+         fh.floodDest = dest_addr;
+         fh.floodSeq = sequenceNumber;
+         fh.floodTTL = MAX_TTL;
+         fh.floodType = FLOOD_TYPE_DATA;
         
         // Calculate available space for application payload
         totalPayloadSize = FLOOD_HEADER_SIZE + pld_len;
@@ -101,6 +105,7 @@ implementation{
       FloodHeader fh;
       uint8_t appPayloadLength;
       uint8_t appPayloadBuffer[PACKET_MAX_PAYLOAD_SIZE - FLOOD_HEADER_SIZE];
+      uint8_t k;
       
       // Copy the flooding header from the packet payload
       memcpy(&fh, receivedPkt->payload, FLOOD_HEADER_SIZE);
@@ -131,7 +136,7 @@ implementation{
 
             //having the Event for received floods is a pain for allowing things aside from Node to use this module,
             //so we can just make an announcement here.
-//            dbg(FLOODING_CHANNEL,"Node %d received ACK for flood seq %d from node %d\n", TOS_NODE_ID, fh.floodSeq, fh.floodSrc);
+            //dbg(FLOODING_CHANNEL,"Node %d received ACK for flood seq %d from node %d\n", TOS_NODE_ID, fh.floodSeq, fh.floodSrc);
             signal Flooding.floodAckReceived(fh.floodSrc, fh.floodSeq);
             //The ACK got to us, no reason to keep flooding it.
             return;
@@ -163,8 +168,16 @@ implementation{
 
          //if this is a LINKSTATE packet, we have additional work to do.
          if (receivedPkt->protocol == PROTOCOL_LINKSTATE){
-            //This is not passing properly, but at the moment I'm unsure how to fix it.
-            call LinkState.handleRoutingPacket(&appPayloadBuffer,appPayloadLength);
+            appPayloadLength = pktLen - FLOOD_HEADER_SIZE;
+            
+            // DEBUG: Print the actual payload bytes (FIX THE FORMATTING)
+            dbg(FLOODING_CHANNEL, "Node %d: LSA payload length=%d, bytes: ", TOS_NODE_ID, appPayloadLength);
+            for(k = 0; k < appPayloadLength && k < 16; k++) {
+               dbg(FLOODING_CHANNEL, "%02x ", receivedPkt->payload[FLOOD_HEADER_SIZE + k]);
+            }
+            dbg(FLOODING_CHANNEL, "\n");
+            
+            call LinkState.handleRoutingPacket(&receivedPkt->payload[FLOOD_HEADER_SIZE], appPayloadLength);
          }
          
          // Signal application that we received a flood

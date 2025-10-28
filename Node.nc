@@ -108,9 +108,15 @@ implementation{
       call Flooding.startFlood(destAddr, payld, payldLen,PROTOCOL_PING);
    }
 
-   event void CommandHandler.printRouteTable(){}
+   event void CommandHandler.printRouteTable(){
+      dbg(GENERAL_CHANNEL, "Node %d: Received printRouteTable command\n", TOS_NODE_ID);
+      call LinkState.printRouteTable();
+   }
 
-   event void CommandHandler.printLinkState(){}
+   event void CommandHandler.printLinkState(){
+      dbg(GENERAL_CHANNEL, "Node %d: Received printLinkState command\n", TOS_NODE_ID);
+      call LinkState.printLinkState();
+   }
 
    event void CommandHandler.printDistanceVector(){}
 

@@ -39,13 +39,13 @@ implementation {
         discoveryActive = TRUE;
         initializeNeighborTable();
         
-        // Calculate delay based on node ID - lower nodes send first
-        // Use 30 seconds (30000ms) between nodes to spread them out
-        nodeDelay = (TOS_NODE_ID - 1) * 30000; // 30 seconds between each node
+        // Calculate delay based on node ID
+        nodeDelay = (TOS_NODE_ID - 1) * 30000;
         
-        // Start timer with node-ID-based delay
+        dbg(NEIGHBOR_CHANNEL, "Node %d: Starting neighbor discovery with delay %lu ms\n", 
+            TOS_NODE_ID, nodeDelay);
+        
         call neighborTimer.startOneShot(nodeDelay);
-        dbg(NEIGHBOR_CHANNEL, "Node %d will start discovery in %lu ms\n", TOS_NODE_ID, nodeDelay);
     }
    
     task void search() {
@@ -92,7 +92,8 @@ implementation {
         if(neighborCount < 19) {
             neighbors[neighborCount] = nodeId;
             neighborCount++;
-            dbg(NEIGHBOR_CHANNEL, "Node %d added neighbor %d. Total neighbors: %d\n", TOS_NODE_ID, nodeId, neighborCount);
+            dbg(NEIGHBOR_CHANNEL, "Node %d added NEW neighbor %d. Total neighbors: %d\n", TOS_NODE_ID, nodeId, neighborCount);
+            signal NeighborDiscovery.neighborsChanged();
         } else {
             dbg(NEIGHBOR_CHANNEL, "Node %d neighbor table full, cannot add %d\n", TOS_NODE_ID, nodeId);
         }

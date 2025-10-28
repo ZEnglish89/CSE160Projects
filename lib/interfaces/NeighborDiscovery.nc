@@ -7,4 +7,5 @@ interface NeighborDiscovery{
     command void neighborUpdate(uint16_t nodeId);
     command uint8_t getNeighborCount();
     command uint16_t getNeighbor(uint8_t neighborIndex);
+    
 }

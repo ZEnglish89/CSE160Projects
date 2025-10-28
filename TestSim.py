@@ -144,9 +144,95 @@ class TestSim:
     def routeDMP(self, destination):
         self.sendCMD(self.CMD_ROUTETABLE_DUMP, destination, "routing command")
 
+    def linkstateDMP(self, destination):
+        self.sendCMD(self.CMD_LINKSTATE_DUMP, destination, "linkstate command")
+
     def addChannel(self, channelName, out=sys.stdout):
         print 'Adding Channel', channelName;
         self.t.addChannel(channelName, out);
+
+
+    def timingTest(self):
+        print "=== TIMING TEST ==="
+        
+        # Wait 3 minutes for neighbor discovery
+        print "Waiting 3 minutes for neighbor discovery..."
+        self.runTime(180000)
+        
+        # Print neighbor tables to confirm
+        for node_id in self.moteids:
+            self.neighborDMP(node_id)
+            self.runTime(500)
+        
+        # Wait another minute for LSAs
+        print "Waiting 1 minute for LSA exchange..."
+        self.runTime(60000)
+        
+        # Check routing tables
+        for node_id in self.moteids:
+            self.routeDMP(node_id)
+            self.runTime(500)
+
+    def testLinkStateRouting(self):
+        print "=== TESTING LINK STATE ROUTING ==="
+        
+        # Wait much longer for everything to stabilize
+        print "Waiting for network stabilization (4 minutes)..."
+        self.runTime(240000)
+        
+        print "=== NEIGHBOR TABLES ==="
+        for node_id in self.moteids:
+            self.neighborDMP(node_id)
+            self.runTime(500)
+        
+        # Manually trigger LSA flooding to ensure we have good data
+        print "Manually triggering LSA flooding..."
+        for node_id in self.moteids:
+            self.ping(node_id, 0, "TRIGGER_LSA")
+        self.runTime(60000)
+        
+        print "=== ROUTING TABLES ==="
+        for node_id in self.moteids:
+            self.routeDMP(node_id)
+            self.runTime(500)
+        
+        print "=== LINK STATE DATABASES ==="
+        for node_id in self.moteids:
+            self.linkstateDMP(node_id)
+            self.runTime(500)
+        
+        # Test routed ping between non-adjacent nodes
+        print "\n=== TESTING ROUTED PING ==="
+        if len(self.moteids) >= 3:
+            source = self.moteids[0]  # Node 1
+            dest = self.moteids[-1]   # Node 9 (should be multiple hops away)
+            print "Node %d pinging node %d (should use routing)" % (source, dest)
+            self.ping(source, dest, "ROUTED_PING_TEST")
+            self.runTime(30000)
+        
+        print "\n=== LINK STATE ROUTING TEST COMPLETE ==="
+
+    def simpleTest(self):
+        print "=== SIMPLE LINK STATE TEST ==="
+        
+        # Wait for everything to initialize
+        self.runTime(180000)  # 3 minutes
+        
+        print "=== NEIGHBOR TABLES ==="
+        for node_id in self.moteids:
+            self.neighborDMP(node_id)
+            self.runTime(500)
+        
+        print "=== ROUTING TABLES ==="
+        for node_id in self.moteids:
+            self.routeDMP(node_id)
+            self.runTime(500)
+        
+        print "=== LINK STATE DATABASES ==="
+        for node_id in self.moteids:
+            self.linkstateDMP(node_id)
+            self.runTime(500)
+
 
 def main():
     s = TestSim();
@@ -158,11 +244,12 @@ def main():
     s.addChannel(s.GENERAL_CHANNEL);
     s.addChannel(s.FLOODING_CHANNEL);
     s.addChannel(s.ROUTING_CHANNEL);
-    #s.addChannel(s.NEIGHBOR_CHANNEL);
+    s.addChannel(s.NEIGHBOR_CHANNEL);
 
     # Let neighbor discovery run for a while
     s.runTime(12000);  # 2 minutes to allow several discovery cycles
-    
+
+    '''
     # Then dump neighbor tables for all nodes
     print "=== DUMPING NEIGHBOR TABLES ==="
     for node_id in s.moteids:
@@ -170,7 +257,7 @@ def main():
         s.neighborDMP(node_id)
         s.runTime(1000);  # Small delay between commands
     
-    s.runTime(10000);  # Give time for all print commands to execute
+    #s.runTime(10000);  # Give time for all print commands to execute
 
     print "=== STARTING FLOOD TEST ==="
     print "Node 1 broadcast flooding message: 'HELLO_FLOOD'"
@@ -202,7 +289,39 @@ def main():
         s.neighborDMP(node_id)
         s.runTime(500);
     
-    s.runTime(10000);  # Final wait
+    
+
+    print "=== STARTING LINK STATE ROUTING TEST ==="
+    
+    # Run the comprehensive test
+    s.testLinkStateRouting()
+    
+    # Additional manual testing if needed
+    print "\n=== ADDITIONAL MANUAL TESTING ==="
+    
+    # Keep the simulation running to see periodic LSAs
+    print "Running for 2 more minutes to observe periodic updates..."
+    s.runTime(120000)
+    
+    # Final state dump
+    print "\n=== FINAL STATE ==="
+    for node_id in s.moteids:
+        print "Node %d Final Routing Table:" % node_id
+        s.routeDMP(node_id)
+        s.runTime(1000)
+    
+    print "=== TEST COMPLETE === "
+    '''
+    print "=== STARTING COMPREHENSIVE LINK STATE ROUTING TEST ==="
+    
+    # Run the comprehensive test
+    s.testLinkStateRouting()
+    
+    # Keep running to see any final updates
+    print "Running for additional 30 seconds to observe final state..."
+    s.runTime(30000)
+    
+    print "=== ALL TESTS COMPLETE ==="
 
 if __name__ == '__main__':
     main()
