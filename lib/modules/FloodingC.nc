@@ -17,4 +17,7 @@ implementation{
 
     components new NeighborDiscoveryC(AM_PACK);
     FloodingP.NeighborDiscovery -> NeighborDiscoveryC;
+
+    components LinkStateC;
+    FloodingP.LinkState -> LinkStateC;
 }

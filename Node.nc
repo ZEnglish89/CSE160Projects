@@ -105,7 +105,7 @@ implementation{
 
    event void CommandHandler.startFlood(uint16_t destAddr, uint8_t *payld, uint8_t payldLen){
       dbg(GENERAL_CHANNEL, "Node %d: Received flood command\n", TOS_NODE_ID);
-      call Flooding.startFlood(destAddr, payld, payldLen);
+      call Flooding.startFlood(destAddr, payld, payldLen,PROTOCOL_PING);
    }
 
    event void CommandHandler.printRouteTable(){}

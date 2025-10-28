@@ -22,7 +22,7 @@ module LinkStateP{
 
 	uses interface NeighborDiscovery;
 
-//	uses interface Flooding;
+	uses interface Flooding;
 }
 
 implementation{
@@ -55,5 +55,14 @@ implementation{
 		}
 		dbg(ROUTING_CHANNEL,"Routing table set up for node %d\n",TOS_NODE_ID);
 	}
+
+	command void LinkState.handleRoutingPacket(uint8_t* buffer,uint8_t len){
+		dbg(ROUTING_CHANNEL,"handleRoutingPacket called for node %d\n",TOS_NODE_ID);
+	}
+
+
+   event void Flooding.floodReceived(uint16_t floodSource, uint16_t seqNum, uint8_t *payld, uint8_t payldLen) {}
+
+   event void Flooding.floodAckReceived(uint16_t source, uint16_t seq) {}
 
 }

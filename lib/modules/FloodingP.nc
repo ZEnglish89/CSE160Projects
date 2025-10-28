@@ -13,6 +13,9 @@ module FloodingP{
     uses interface SimpleSend;
     //We need neighbordiscovery to forward to neighbors
     uses interface NeighborDiscovery;
+
+   //we need to send specific packets to the LinkState code.
+    uses interface LinkState;
 }
 
 implementation{
@@ -38,7 +41,7 @@ implementation{
         dbg(FLOODING_CHANNEL,"Flooding initialized for node %d\n", TOS_NODE_ID);
     }
 
-    command void Flooding.startFlood(uint16_t dest_addr, uint8_t *pld, uint8_t pld_len){
+    command void Flooding.startFlood(uint16_t dest_addr, uint8_t *pld, uint8_t pld_len, nx_uint8_t protocol){
         //initializing some empty variables for later
         uint16_t sequenceNumber;
         pack floodMsg;
@@ -76,7 +79,7 @@ implementation{
         floodMsg.TTL = MAX_TTL;
         //we entertained making a new protocal to have flooding operate more independently, but the assignment documents
         //say that we should be using pings and pingreplies.
-        floodMsg.protocol = PROTOCOL_PING;
+        floodMsg.protocol = protocol;
         
         // Copy flooding header to payload
         memcpy(floodMsg.payload, &fh, FLOOD_HEADER_SIZE);
@@ -125,7 +128,9 @@ implementation{
       if(fh.floodType == FLOOD_TYPE_ACK) {
          //If we're the destination, signal that we got it and move on.
          if(fh.floodDest == TOS_NODE_ID) {
-//          We announce it in the floodAckReceived() function, so no point in saying it twice.
+
+            //having the Event for received floods is a pain for allowing things aside from Node to use this module,
+            //so we can just make an announcement here.
 //            dbg(FLOODING_CHANNEL,"Node %d received ACK for flood seq %d from node %d\n", TOS_NODE_ID, fh.floodSeq, fh.floodSrc);
             signal Flooding.floodAckReceived(fh.floodSrc, fh.floodSeq);
             //The ACK got to us, no reason to keep flooding it.
@@ -155,10 +160,18 @@ implementation{
          
          // Copy application payload to buffer, ta-daa it's ours now.
          memcpy(appPayloadBuffer, &receivedPkt->payload[FLOOD_HEADER_SIZE], appPayloadLength);
+
+         //if this is a LINKSTATE packet, we have additional work to do.
+         if (receivedPkt->protocol == PROTOCOL_LINKSTATE){
+            call LinkState.handleRoutingPacket(&appPayloadBuffer,appPayloadLength);
+         }
          
          // Signal application that we received a flood
+         //same as above, it's better/easier to announce here rather than leaning on another Event.
          signal Flooding.floodReceived(fh.floodSrc, fh.floodSeq, appPayloadBuffer, appPayloadLength);
-         
+//         dbg(GENERAL_CHANNEL, "Node %d: Received flood from node %d, seq %d, payload: %.*s\n", 
+//            TOS_NODE_ID, fh.floodSrc, fh.floodSeq, appPayloadBuffer,appPayloadLength);
+  
          // If this is a targeted flood and we're the destination, send an ACK in return.
          if(fh.floodDest != 0 && fh.floodDest == TOS_NODE_ID) {
             dbg(FLOODING_CHANNEL,"Node %d is destination for targeted flood seq %d, sending ACK\n", 
