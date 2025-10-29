@@ -177,7 +177,7 @@ implementation{
             }
             dbg(FLOODING_CHANNEL, "\n");
             
-            call LinkState.handleRoutingPacket(&(receivedPkt->payload[FLOOD_HEADER_SIZE]), appPayloadLength);
+            call LinkState.handleRoutingPacket((uint8_t*)&(receivedPkt->payload[FLOOD_HEADER_SIZE]), appPayloadLength);
          }
          
          // Signal application that we received a flood

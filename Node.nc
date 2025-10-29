@@ -64,18 +64,18 @@ implementation{
       if(len == sizeof(pack)) {
          myMsg = (pack*) payload;
 
-		//if this is either a Neighbordiscovery message or a Neighbordiscovery response
-		if((strncmp((char*)myMsg->payload, "NEIGHBOR_DISC", 13) == 0)||(strncmp((char*)myMsg->payload, "NEIGHBOR_RESP", 13) == 0)){ 
-			//if we're the sender, just completely ignore it and move on.
-			//Note that removing this if statement doesn't seem to affect functionality, there's a chance
-			//that the nodes aren't receiving their own packets regardless, but there's no downside to
-			//leaving this here to catch edge cases.
-			if(myMsg->src!=TOS_NODE_ID){
-				//let the relevant module handle it.
-				call NeighborDiscovery.handleNeighborPacket(myMsg,responseMsg,responsePayload);
-			}
-			return msg;
-		}
+         //if this is either a Neighbordiscovery message or a Neighbordiscovery response
+         if((strncmp((char*)myMsg->payload, "NEIGHBOR_DISC", 13) == 0)||(strncmp((char*)myMsg->payload, "NEIGHBOR_RESP", 13) == 0)){ 
+            //if we're the sender, just completely ignore it and move on.
+            //Note that removing this if statement doesn't seem to affect functionality, there's a chance
+            //that the nodes aren't receiving their own packets regardless, but there's no downside to
+            //leaving this here to catch edge cases.
+            if(myMsg->src!=TOS_NODE_ID){
+               //let the relevant module handle it.
+               call NeighborDiscovery.handleNeighborPacket(myMsg,responseMsg,responsePayload);
+            }
+            return msg;
+         }
          // otherwise, this is a flooding packet. based on our current setup, if it's not used for neighbordiscovery it must be a flood.
          else{
                dbg(FLOODING_CHANNEL, "Node %d: Received flooding packet from node %d, handling\n", TOS_NODE_ID, myMsg->src);

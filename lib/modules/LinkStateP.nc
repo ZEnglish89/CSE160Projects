@@ -18,13 +18,12 @@ module LinkStateP{
 }
 
 implementation {
-	uint8_t neighborCount;
 	// Define LSA structure with uint8_t for everything
-	typedef struct LSA {
+		typedef struct LSA {
 		uint8_t nodeId;
 		uint8_t seqNum;
-		uint8_t neighbors[6];
 		uint8_t neighborCount;
+		uint8_t neighbors[6];
 	} LSA;
 
 	// Function declarations
@@ -72,8 +71,8 @@ implementation {
 		
 		memcpy(&receivedLsa, buffer, sizeof(LSA));
 		
-//		dbg(ROUTING_CHANNEL, "Node %d: Received LSA from node %d\n", 
-//			TOS_NODE_ID, receivedLsa.nodeId);
+//      dbg(ROUTING_CHANNEL, "Node %d: Received LSA from node %d\n", 
+//          TOS_NODE_ID, receivedLsa.nodeId);
 		
 		updateLsDatabase(&receivedLsa);
 		//dbg(ROUTING_CHANNEL,"Calling computeRoutes()\n");
@@ -82,36 +81,34 @@ implementation {
 
 	command void LinkState.startRouting() {
 		LSA myLsa;
-//		uint8_t neighborCount;
 		uint8_t i;
 		uint16_t neighbor;
+		uint8_t currentNeighborCount;
 		//dbg(ROUTING_CHANNEL,"startRouting() running\n");
 		
 		if (!routingInitialized) {
 			return;
 		}
 	
-		neighborCount = call NeighborDiscovery.getNeighborCount();
+		currentNeighborCount = call NeighborDiscovery.getNeighborCount();
 
-		if (neighborCount == 0) {
-//			dbg(ROUTING_CHANNEL, "Node %d: No neighbors yet, skipping LSA\n", TOS_NODE_ID);
+		if (currentNeighborCount == 0) {
+//          dbg(ROUTING_CHANNEL, "Node %d: No neighbors yet, skipping LSA\n", TOS_NODE_ID);
 			return;
 		}
 
 		myLsa.nodeId = TOS_NODE_ID;
 		myLsa.seqNum = currentSeqNum++;
 		
-		//dbg(ROUTING_CHANNEL, "Node %d: NeighborDiscovery returned %d neighbors\n", TOS_NODE_ID, neighborCount);
+		//dbg(ROUTING_CHANNEL, "Node %d: NeighborDiscovery returned %d neighbors\n", TOS_NODE_ID, currentNeighborCount);
 
-		myLsa.neighborCount = (neighborCount > 19) ? 19 : neighborCount;
-//		dbg(ROUTING_CHANNEL, "NeighborCount is %d\n", myLsa.neighborCount);
-
-//		myLsa.neighborCount = neighborCount;
+		myLsa.neighborCount = (currentNeighborCount > 19) ? 19 : currentNeighborCount;
+//      dbg(ROUTING_CHANNEL, "NeighborCount is %d\n", myLsa.neighborCount);
 
 		for(i = 0; i < myLsa.neighborCount; i++) {
 			neighbor = call NeighborDiscovery.getNeighbor(i);
 			//dbg(ROUTING_CHANNEL, "Node %d: Neighbor[%d] = %d\n", 
-//				TOS_NODE_ID, i, neighbor);
+//             TOS_NODE_ID, i, neighbor);
 			myLsa.neighbors[i] = neighbor;
 		}
 		
@@ -183,53 +180,78 @@ implementation {
 	}
 
 	void computeRoutes() {
-		uint8_t neighborCount;
-		uint8_t i;
-		uint8_t j;
+		uint8_t i, j;
 		uint16_t neighbor;
-		LSA* lsa;
-		uint8_t lsaNeighbor;
+		uint8_t currentNodeId = TOS_NODE_ID;
+		uint8_t currentNeighborCount;
+		uint8_t updated;
+		uint8_t nodeId;
+		uint8_t neighborId;
 		uint8_t newCost;
 		
+		// Initialize all routes to unreachable
 		for(i = 0; i < 19; i++) {
-			routes[i][0] = 0xFF;
-			routes[i][1] = 0xFF;
+			routes[i][0] = 0xFF;  // Next hop
+			routes[i][1] = 0xFF;  // Cost (255 means unreachable)
 		}
 		
-		if(TOS_NODE_ID >= 1 && TOS_NODE_ID <= 19) {
-			routes[TOS_NODE_ID-1][0] = TOS_NODE_ID;
-			routes[TOS_NODE_ID-1][1] = 0;
+		// Distance to self is 0
+		if(currentNodeId >= 1 && currentNodeId <= 19) {
+			routes[currentNodeId-1][0] = currentNodeId;
+			routes[currentNodeId-1][1] = 0;
 		}
 		
-		neighborCount = call NeighborDiscovery.getNeighborCount();
-		//dbg(ROUTING_CHANNEL,"getNeighborCount called, count is: %d\n",neighborCount);
-		for(i = 0; i < neighborCount; i++) {
+		// Initialize direct neighbors
+		currentNeighborCount = call NeighborDiscovery.getNeighborCount();
+		for(i = 0; i < currentNeighborCount; i++) {
 			neighbor = call NeighborDiscovery.getNeighbor(i);
-			//dbg(ROUTING_CHANNEL,"getNeighbor called\n");
 			if(neighbor >= 1 && neighbor <= 19) {
-				routes[neighbor-1][0] = neighbor;
-				routes[neighbor-1][1] = 1;
+				routes[neighbor-1][0] = neighbor;  // Next hop is the neighbor itself
+				routes[neighbor-1][1] = 1;         // Cost is 1 hop
 			}
 		}
 		
-		for(i = 0; i < lsDatabaseSize; i++) {
-			lsa = &lsDatabase[i];
+		// Main Dijkstra loop - continue until no more updates
+		do {
+			updated = FALSE;
 			
-			for(j = 0; j < lsa->neighborCount; j++) {
-				lsaNeighbor = lsa->neighbors[j];
-				if(lsaNeighbor >= 1 && lsaNeighbor <= 19) {
-					if(routes[lsa->nodeId-1][0] != 0xFF) {
-						newCost = routes[lsa->nodeId-1][1] + 1;
-						if(newCost < routes[lsaNeighbor-1][1]) {
-							routes[lsaNeighbor-1][0] = routes[lsa->nodeId-1][0];
-							routes[lsaNeighbor-1][1] = newCost;
-						}
+			// For each node in our LS database
+			for(i = 0; i < lsDatabaseSize; i++) {
+				nodeId = lsDatabase[i].nodeId;
+				
+				// If we don't have a route to this node yet, skip it
+				if(routes[nodeId-1][0] == 0xFF) {
+					continue;
+				}
+				
+				// For each neighbor of this node
+				for(j = 0; j < lsDatabase[i].neighborCount; j++) {
+					neighborId = lsDatabase[i].neighbors[j];
+					
+					// Skip if neighbor is out of range
+					if(neighborId < 1 || neighborId > 19) {
+						continue;
+					}
+					
+					// Skip if we're trying to route to ourselves
+					if(neighborId == currentNodeId) {
+						continue;
+					}
+					
+					// Calculate new cost through this path
+					newCost = routes[nodeId-1][1] + 1;
+					
+					// If this path is better than what we have, update
+					if(newCost < routes[neighborId-1][1]) {
+						routes[neighborId-1][0] = routes[nodeId-1][0];  // Next hop is same as to the intermediate node
+						routes[neighborId-1][1] = newCost;
+						updated = TRUE;
 					}
 				}
 			}
-		}
+		} while(updated);
 		
-		//dbg(ROUTING_CHANNEL, "Node %d: Routes computed\n", TOS_NODE_ID);
+		//dbg(ROUTING_CHANNEL, "Node %d: Dijkstra routes computed\n", TOS_NODE_ID);
 	}
 
 	event void LsTimer.fired() {
@@ -245,8 +267,8 @@ implementation {
 	event void NeighborDiscovery.neighborsChanged(uint8_t externalNeighborCount){
 		//I was hoping that this would be extremely useful, but the code appears to outright do nothing.
 		//when the event is signaled from NeighborDiscoveryP.nc, these lines of code are never executed.
-//		dbg(ROUTING_CHANNEL,"neighborsChanged successfully signaled\n");
-//		neighborCount = externalNeighborCount;
-//		dbg(ROUTING_CHANNEL,"neighborCount changed, it is now: %d\n",neighborCount);
+		//dbg(ROUTING_CHANNEL,"neighborsChanged successfully signaled\n");
+		//neighborCount = externalNeighborCount;
+		//dbg(ROUTING_CHANNEL,"neighborCount changed, it is now: %d\n",neighborCount);
 	}
 }

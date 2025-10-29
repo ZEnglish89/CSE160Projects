@@ -178,18 +178,18 @@ class TestSim:
         
         # Wait much longer for everything to stabilize
         print "Waiting for network stabilization (4 minutes)..."
-        self.runTime(240000)
+        self.runTime(20000)
         
         print "=== NEIGHBOR TABLES ==="
         for node_id in self.moteids:
             self.neighborDMP(node_id)
-            self.runTime(500)
+            self.runTime(5000)
         
         # Manually trigger LSA flooding to ensure we have good data
         print "Manually triggering LSA flooding..."
         for node_id in self.moteids:
             self.ping(node_id, 0, "TRIGGER_LSA")
-        self.runTime(900000)
+        self.runTime(9000)
         
         print "=== ROUTING TABLES ==="
         for node_id in self.moteids:
@@ -237,8 +237,9 @@ class TestSim:
 def main():
     s = TestSim();
     s.runTime(10);
-    s.loadTopo("example.topo");
-#    s.loadTopo("long_line.topo");
+    #s.loadTopo("example.topo");
+    s.loadTopo("long_line.topo");
+
     s.loadNoise("no_noise.txt");
     s.bootAll();
 #    s.addChannel(s.COMMAND_CHANNEL);
