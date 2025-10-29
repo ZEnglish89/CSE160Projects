@@ -112,7 +112,7 @@ class TestSim:
     # Rough run time. tickPerSecond does not work.
     def runTime(self, amount):
         self.run(amount)
- 
+
     # Generic Command
     def sendCMD(self, ID, dest, payloadStr):
         self.msg.set_dest(dest);
@@ -177,61 +177,52 @@ class TestSim:
         print "=== TESTING LINK STATE ROUTING ==="
         
         # Wait much longer for everything to stabilize
-        print "Waiting for network stabilization (4 minutes)..."
-        self.runTime(20000)
+        print "Waiting for network stabilization (6 minutes)..."
+        self.runTime(360000)  # 6 minutes
         
         print "=== NEIGHBOR TABLES ==="
         for node_id in self.moteids:
             self.neighborDMP(node_id)
-            self.runTime(5000)
+            self.runTime(2000)
         
-        # Manually trigger LSA flooding to ensure we have good data
-        print "Manually triggering LSA flooding..."
-        for node_id in self.moteids:
-            self.ping(node_id, 0, "TRIGGER_LSA")
-        self.runTime(9000)
+        # Wait for LSA propagation
+        print "Waiting for LSA propagation (2 minutes)..."
+        self.runTime(120000)
         
         print "=== ROUTING TABLES ==="
         for node_id in self.moteids:
             self.routeDMP(node_id)
-            self.runTime(5000)
+            self.runTime(2000)
         
         print "=== LINK STATE DATABASES ==="
         for node_id in self.moteids:
             self.linkstateDMP(node_id)
-            self.runTime(500)
+            self.runTime(1000)
         
-        # Test routed ping between non-adjacent nodes
-        print "\n=== TESTING ROUTED PING ==="
-        if len(self.moteids) >= 3:
-            source = self.moteids[0]  # Node 1
-            dest = self.moteids[-1]   # Node 9 (should be multiple hops away)
-            print "Node %d pinging node %d (should use routing)" % (source, dest)
-            self.ping(source, dest, "ROUTED_PING_TEST")
-            self.runTime(30000)
+        # Test end-to-end routing
+        print "\n=== TESTING END-TO-END ROUTING ==="
+        if len(self.moteids) >= 19:
+            source = 1
+            dest = 19
+            print "Node %d pinging node %d (should traverse 18 hops)" % (source, dest)
+            self.ping(source, dest, "END_TO_END_TEST")
+            self.runTime(60000)
         
         print "\n=== LINK STATE ROUTING TEST COMPLETE ==="
 
-    def simpleTest(self):
-        print "=== SIMPLE LINK STATE TEST ==="
+    def testSimplePing(self):
+        print "=== SIMPLE PING TEST ==="
+        print "Node 1 pinging Node 2 (direct neighbor)"
+        self.ping(1, 2, "DIRECT_PING")
+        self.runTime(10000)
         
-        # Wait for everything to initialize
-        self.runTime(180000)  # 3 minutes
+        print "Node 1 pinging Node 3 (2 hops away)" 
+        self.ping(1, 3, "TWO_HOP_PING")
+        self.runTime(10000)
         
-        print "=== NEIGHBOR TABLES ==="
-        for node_id in self.moteids:
-            self.neighborDMP(node_id)
-            self.runTime(500)
-        
-        print "=== ROUTING TABLES ==="
-        for node_id in self.moteids:
-            self.routeDMP(node_id)
-            self.runTime(500)
-        
-        print "=== LINK STATE DATABASES ==="
-        for node_id in self.moteids:
-            self.linkstateDMP(node_id)
-            self.runTime(500)
+        print "Node 1 pinging Node 19 (18 hops away)"
+        self.ping(1, 19, "LONG_PING")
+        self.runTime(60000)
 
 
 def main():
@@ -242,11 +233,11 @@ def main():
 
     s.loadNoise("no_noise.txt");
     s.bootAll();
-#    s.addChannel(s.COMMAND_CHANNEL);
+    s.addChannel(s.COMMAND_CHANNEL);
     s.addChannel(s.GENERAL_CHANNEL);
 #    s.addChannel(s.FLOODING_CHANNEL);
-#    s.addChannel(s.ROUTING_CHANNEL);
-#    s.addChannel(s.NEIGHBOR_CHANNEL);
+    s.addChannel(s.ROUTING_CHANNEL);
+    s.addChannel(s.NEIGHBOR_CHANNEL);
 
     # Let neighbor discovery run for a while
     s.runTime(120000);  # 2 minutes to allow several discovery cycles
@@ -318,7 +309,7 @@ def main():
     
     # Run the comprehensive test
     s.testLinkStateRouting()
-    
+    #s.testSimplePing()
     # Keep running to see any final updates
     print "Running for additional 30 seconds to observe final state..."
     s.runTime(30000)

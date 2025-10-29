@@ -97,10 +97,10 @@ implementation{
    }
 
    event void CommandHandler.ping(uint16_t destAddr, uint8_t *payld){
-      dbg(GENERAL_CHANNEL, "PING EVENT \n");
+      dbg(GENERAL_CHANNEL, "PING EVENT - Sending to %d\n", destAddr);
       call IP.sendMessage(destAddr,payld);
-//      makePack(&sendPackage, TOS_NODE_ID, destAddr, 0, 0, 0, payld, PACKET_MAX_PAYLOAD_SIZE);
-//      call Sender.send(sendPackage, destAddr);
+      //      makePack(&sendPackage, TOS_NODE_ID, destAddr, 0, 0, 0, payld, PACKET_MAX_PAYLOAD_SIZE);
+      //      call Sender.send(sendPackage, destAddr);
    }
 
    event void CommandHandler.neighDisc(){

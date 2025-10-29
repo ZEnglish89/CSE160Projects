@@ -1,6 +1,3 @@
-//Grabbing a bunch of inclusions because I already had the list on-hand from
-//another file and I don't want to risk missing anything.
-
 #include "../../includes/channels.h"
 #include "../../includes/packet.h"
 #include "../../includes/IP.h"
@@ -16,126 +13,130 @@ module IPP{
 implementation{
     command void IP.sendMessage(uint16_t destAddr, uint8_t *payld){
         pack msg;
-        //if this is meant to be broadcast, just let Flooding handle it.
-        if (destAddr == 0){
-            call Flooding.startFlood(destAddr,payld,PACKET_MAX_PAYLOAD_SIZE,PROTOCOL_PING);
-            return;
-        }
-
-        //otherwise, it's our problem.
-        //make a packet and an IP header
-        
-
         IPHeader head;
-
-        //grab the next hop information right away to avoid unnecessary work if we would just have to drop
-        //the packet anyway.
-        uint8_t uncastedNextHop = call LinkState.getNextHop(destAddr);
-
-        //the nextHop defaults to 0xFF if we haven't found a route.
-        if(uncastedNextHop == 0xFF){
-            dbg(IP_CHANNEL,"Node %d dropped packet due to no route available\n",TOS_NODE_ID);
+        uint8_t uncastedNextHop;
+        uint16_t NextHop;
+        uint8_t payldLen;
+        
+        // If this is meant to be broadcast, let Flooding handle it.
+        if (destAddr == 0){
+            call Flooding.startFlood(destAddr, payld, PACKET_MAX_PAYLOAD_SIZE, PROTOCOL_PING);
             return;
         }
 
-        //cast to match the packet header's requirements.
-        uint16_t NextHop = (nx_uint16_t) uncastedNextHop;
+        // Get the next hop information
+        uncastedNextHop = call LinkState.getNextHop(destAddr);
 
-        //populate the IP header with relevant information. We're sending the message here, so we know that we're the source.
+        // If no route found, drop packet
+        if(uncastedNextHop == 0xFF){
+            dbg(GENERAL_CHANNEL, "Node %d: No route to %d, dropping packet\n", TOS_NODE_ID, destAddr);
+            return;
+        }
+
+        // Cast to match packet header requirements
+        NextHop = (uint16_t) uncastedNextHop;
+
+        // Populate the IP header
         head.IPSrc = TOS_NODE_ID;
         head.IPDest = destAddr;
         head.IPTTL = MAX_TTL;
-        //the protocol is subject to change later, right now we'll just default to Ping
         head.IPProtocol = PROTOCOL_PING;
 
-        //copy the IP header into the front of the packet's payload space.
-        memcpy(msg.payload,&head,IP_HEADER_SIZE);
+        // Copy IP header into packet payload
+        memcpy(msg.payload, &head, IP_HEADER_SIZE);
 
-        //copy the rest of the payload in after the header.
-        uint8_t payldLen = PACKET_MAX_PAYLOAD_SIZE - IP_HEADER_SIZE;
-        memcpy(msg.payload+IP_HEADER_SIZE,payld,payldLen);
+        // Copy application payload after IP header
+        payldLen = PACKET_MAX_PAYLOAD_SIZE - IP_HEADER_SIZE;
+        memcpy(msg.payload + IP_HEADER_SIZE, payld, payldLen);
 
+        // Set packet headers
         msg.src = TOS_NODE_ID;
         msg.dest = NextHop;
-        //TTL can be 0 because we're only going one hop, sequence number is irrelevant for right now.
         msg.TTL = 0;
         msg.seq = 0;
         msg.protocol = PROTOCOL_PING;
 
-        //now we just send this along the standard sending functionality to its next hop.
-        call SimpleSend.send(msg,NextHop);
-        return;
-        
+        dbg(GENERAL_CHANNEL, "Node %d: Sending IP packet to %d via next hop %d\n", 
+            TOS_NODE_ID, destAddr, NextHop);
+
+        // Send the packet
+        call SimpleSend.send(msg, NextHop);
     }
 
     command void IP.handleMessage(pack* msg, uint8_t pktLen, uint16_t senderId){
-
-        //create IP Header and copy the header of the incoming packet into it.
         IPHeader head;
+        uint8_t finalDest;
+        uint8_t uncastedNextHop;
+        uint16_t NextHop;
+        uint8_t payldLen;  // ADD THIS DECLARATION
 
-        memcpy(&head,msg->payload,IP_HEADER_SIZE);
+        // Check if this is a link state packet (PROTOCOL_LINKSTATE)
+        if (msg->protocol == PROTOCOL_LINKSTATE) {
+            call Flooding.handleFloodPacket(msg, pktLen, senderId);
+            return;
+        }
 
-        uint8_t finalDest = (uint8_t) head.IPDest;
+        // For non-LSA packets, continue with IP processing
+        memcpy(&head, msg->payload, IP_HEADER_SIZE);
 
-        //check if we're the destination.
+        finalDest = (uint8_t) head.IPDest;
+
+        // Check if we're the destination.
         if(finalDest == TOS_NODE_ID){
-            dbg(IP_CHANNEL,"Node %d received packet intended for it!\n",TOS_NODE_ID);
+            payldLen = pktLen - IP_HEADER_SIZE;  // CALCULATE PAYLOAD LENGTH
+            dbg(GENERAL_CHANNEL, "Node %d: DELIVERED PACKET! Payload: %.*s\n", 
+                TOS_NODE_ID, payldLen, &(msg->payload[IP_HEADER_SIZE]));
             return;
         }
 
-        //if this was a broadcast, just let Flooding handle it.
+        // If this was a broadcast, let Flooding handle it.
         if(finalDest == AM_BROADCAST_ADDR){
-            call Flooding.handleFloodPacket(msg,pktLen,senderId);
+            call Flooding.handleFloodPacket(msg, pktLen, senderId);
             return;
         }
 
-        //check TTL
-        if(head.IPTTL==0){
-            dbg(IP_CHANNEL,"Node %d dropping packet due to TTL\n",TOS_NODE_ID);
+        // Check TTL
+        if(head.IPTTL == 0){
+            dbg(GENERAL_CHANNEL, "Node %d dropping packet due to TTL\n", TOS_NODE_ID);
             return;
         }
 
-        //grab the next hop information right away to avoid unnecessary work if we would just have to drop
-        //the packet anyway.
-        uint8_t uncastedNextHop = LinkState.getNextHop(finalDest);
+        // Get next hop information
+        uncastedNextHop = call LinkState.getNextHop(finalDest);
 
-        //the nextHop defaults to 0xFF if we haven't found a route.
+        // If no route found, drop packet
         if(uncastedNextHop == 0xFF){
-            dbg(IP_CHANNEL,"Node %d dropped packet due to no route available\n",TOS_NODE_ID);
+            dbg(GENERAL_CHANNEL, "Node %d dropped packet due to no route to %d\n", TOS_NODE_ID, finalDest);
             return;
         }
 
-        //cast to match the packet header's requirements.
-        nx_uint16_t NextHop = (nx_uint16_t) uncastedNextHop;
+        // Cast to match packet header requirements
+        NextHop = (uint16_t) uncastedNextHop;
 
-        //decrement TTL
-        head.IPTTL-=1;
+        // Decrement TTL
+        head.IPTTL -= 1;
 
-        //if the TTL hasn't bottomed out, copy the new TTL into the packet,
-        //set up the standard header again, and send on.
-        if(head.IPTTL>0){
+        // If TTL still valid, forward packet
+        if(head.IPTTL > 0){
+            memcpy(msg->payload, &head, IP_HEADER_SIZE);
 
-            memcpy(msg.payload,&head,IP_HEADER_SIZE);
+            msg->src = TOS_NODE_ID;
+            msg->dest = NextHop;
+            msg->TTL = 0;
+            msg->seq = 0;
+            msg->protocol = PROTOCOL_PING;
 
-            msg.src = TOS_NODE_ID;
-            msg.dest = NextHop;
-            //TTL can be 0 because we're only going one hop, sequence number is irrelevant for right now.
-            msg.TTL = 0;
-            msg.seq = 0;
-            msg.protocol = PROTOCOL_PING;
-
-            //now we just send this along the standard sending functionality to its next hop.
-            call SimpleSend.send(msg,NextHop);
+            dbg(GENERAL_CHANNEL, "Node %d: Forwarding packet to %d via %d (TTL: %d)\n", 
+                TOS_NODE_ID, finalDest, NextHop, head.IPTTL);
+            
+            call SimpleSend.send(*msg, NextHop);
             return;
         }
-        return;
-
     }
 
-	event void Flooding.floodReceived(uint16_t floodSource, uint16_t seqNum, uint8_t *payld, uint8_t payldLen) {
-	}
+    event void Flooding.floodReceived(uint16_t floodSource, uint16_t seqNum, uint8_t *payld, uint8_t payldLen) {
+    }
 
-	event void Flooding.floodAckReceived(uint16_t source, uint16_t seq) {
-	}
+    event void Flooding.floodAckReceived(uint16_t source, uint16_t seq) {
+    }
 }
-
