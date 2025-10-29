@@ -19,6 +19,12 @@ implementation {
     uint16_t neighbors[19];
     uint8_t neighborCount = 0;
     bool discoveryActive = FALSE;
+
+    //A separate array to keep track of how recently we've heard from each of our neighbors
+    uint8_t cyclesPassed[19];
+    //arbitrary value, if we haven't heard from someone in three cycles of neighbor discovery they're probably not here anymore.
+    //obviously we could take another value, including one if we wanted to be really strict.
+    uint8_t maxCycles = 2;
     
 //    uint16_t oldNeighbors[19];
 //    uint8_t oldNeighborCount = 0;
@@ -31,6 +37,7 @@ implementation {
         neighborCount = 0;
         for(i = 0; i < 19; i++) {
             neighbors[i] = 0;
+            cyclesPassed[i] = maxCycles; //we haven't seen anybody yet, so we want to start by representing that.
         }
         dbg(NEIGHBOR_CHANNEL, "Neighbor table initialized\n");
     }
@@ -93,15 +100,21 @@ implementation {
         for(i = 0; i < neighborCount; i++) {
             if(neighbors[i] == nodeId) {
 //                dbg(NEIGHBOR_CHANNEL, "Node %d: Neighbor %d already in table, skipping\n", TOS_NODE_ID, nodeId);
+                //we saw this neighbor again, so we can reset their value!
+                cyclesPassed[i] = 0;
                 return; // Neighbor already in table
             }
         }
         
         // Add new neighbor if there's space
         if(neighborCount < 19) {
+            //add our new neighbor, and show that we've seen them just now.
             neighbors[neighborCount] = nodeId;
+            cyclesPassed[neighborCount] = 0;
+
             neighborCount++;
 //            dbg(NEIGHBOR_CHANNEL, "Node %d added NEW neighbor %d. Total neighbors: %d\n", TOS_NODE_ID, nodeId, neighborCount);
+            //signal the event so we can re-run routing.
             signal NeighborDiscovery.neighborsChanged(neighborCount);
 //            dbg(ROUTING_CHANNEL,"neighborsChanged signaled, should see dbg for neighborCount changing\n");
         } else {
@@ -111,6 +124,32 @@ implementation {
 
     event void neighborTimer.fired() {
 //        dbg(NEIGHBOR_CHANNEL, "Node %d neighbor timer fired\n", TOS_NODE_ID);
+        //loop through all of our neighbors, increase the number of cycles its been since we've seen them by one.
+        //if they max our their number of cycles, remove them by shifting the entire list down to overwrite them.
+        bool dropped = FALSE;
+        uint8_t i = 0 ;
+        while(i<neighborCount){
+            cyclesPassed[i]++;
+            if(cyclesPassed[i]>=maxCycles){
+                uint8_t j;
+                for(j=i;j<neighborCount-1;j++){
+                    neighbors[j] = neighbors[j+1];
+                    cyclesPassed[j] = cyclesPassed[j+1];
+                }
+                neighborCount--;
+                dropped = TRUE;
+                //because we shifted the list down, we don't need to increment i here,
+                //we can stay at the same index.
+            }
+            else{
+                //but if we didn't shift the list down, then incrementing i is necessary.
+                i++;
+            }
+        }
+        //if we removed any "dead" nodes, then we've gotta let the rest of the program know.
+        if(dropped){
+            signal NeighborDiscovery.neighborsChanged(neighborCount);
+        }
         post search();
     }
 

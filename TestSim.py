@@ -207,7 +207,35 @@ class TestSim:
             print "Node %d pinging node %d (should traverse 18 hops)" % (source, dest)
             self.ping(source, dest, "END_TO_END_TEST")
             self.runTime(60000)
+        else:
+            source = 1
+            dest = 8
+            print "Node %d pinging node %d (should traverse some hops lol)" % (source, dest)
+            self.ping(source, dest, "END_TO_END_TEST")
+            self.runTime(60000)
+
+        self.moteOff(4)
+        self.runTime(120000)
+
+#        print "=== ROUTING TABLES ==="
+#        for node_id in self.moteids:
+#            self.routeDMP(node_id)
+#            self.runTime(2000)
         
+        print "\n=== TESTING END-TO-END ROUTING ROUND TWO ==="
+        if len(self.moteids) >= 19:
+            source = 1
+            dest = 19
+            print "Node %d pinging node %d (should traverse 18 hops)" % (source, dest)
+            self.ping(source, dest, "END_TO_END_TEST")
+            self.runTime(60000)
+        else:
+            source = 1
+            dest = 8
+            print "Node %d pinging node %d (should traverse some hops lol)" % (source, dest)
+            self.ping(source, dest, "END_TO_END_TEST")
+            self.runTime(60000)
+
         print "\n=== LINK STATE ROUTING TEST COMPLETE ==="
 
     def testSimplePing(self):
@@ -229,7 +257,7 @@ def main():
     s = TestSim();
     s.runTime(10);
     #s.loadTopo("example.topo");
-    s.loadTopo("long_line.topo");
+    s.loadTopo("example.topo");
 
     s.loadNoise("no_noise.txt");
     s.bootAll();
