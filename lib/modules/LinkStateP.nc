@@ -59,24 +59,24 @@ implementation {
 		// Then periodic every 60 seconds
 		call LsTimer.startPeriodic(60000);
 		
-		dbg(ROUTING_CHANNEL, "Node %d: Routing initialized, first LSA in 2 minutes\n", TOS_NODE_ID);
+		//dbg(ROUTING_CHANNEL, "Node %d: Routing initialized, first LSA in 2 minutes\n", TOS_NODE_ID);
 	}
 
 	command void LinkState.handleRoutingPacket(uint8_t* buffer, uint8_t len) {
 		LSA receivedLsa;
 		
 		if (len < sizeof(LSA)) {
-			dbg(ROUTING_CHANNEL, "Node %d: Invalid LSA size\n", TOS_NODE_ID);
+			//dbg(ROUTING_CHANNEL, "Node %d: Invalid LSA size\n", TOS_NODE_ID);
 			return;
 		}
 		
 		memcpy(&receivedLsa, buffer, sizeof(LSA));
 		
-		dbg(ROUTING_CHANNEL, "Node %d: Received LSA from node %d\n", 
-			TOS_NODE_ID, receivedLsa.nodeId);
+//		dbg(ROUTING_CHANNEL, "Node %d: Received LSA from node %d\n", 
+//			TOS_NODE_ID, receivedLsa.nodeId);
 		
 		updateLsDatabase(&receivedLsa);
-		dbg(ROUTING_CHANNEL,"Calling computeRoutes()\n");
+		//dbg(ROUTING_CHANNEL,"Calling computeRoutes()\n");
 		computeRoutes();
 	}
 
@@ -85,7 +85,7 @@ implementation {
 //		uint8_t neighborCount;
 		uint8_t i;
 		uint16_t neighbor;
-		dbg(ROUTING_CHANNEL,"startRouting() running\n");
+		//dbg(ROUTING_CHANNEL,"startRouting() running\n");
 		
 		if (!routingInitialized) {
 			return;
@@ -94,28 +94,31 @@ implementation {
 		neighborCount = call NeighborDiscovery.getNeighborCount();
 
 		if (neighborCount == 0) {
-			dbg(ROUTING_CHANNEL, "Node %d: No neighbors yet, skipping LSA\n", TOS_NODE_ID);
+//			dbg(ROUTING_CHANNEL, "Node %d: No neighbors yet, skipping LSA\n", TOS_NODE_ID);
 			return;
 		}
 
 		myLsa.nodeId = TOS_NODE_ID;
 		myLsa.seqNum = currentSeqNum++;
 		
-		dbg(ROUTING_CHANNEL, "Node %d: NeighborDiscovery returned %d neighbors\n", TOS_NODE_ID, neighborCount);
+		//dbg(ROUTING_CHANNEL, "Node %d: NeighborDiscovery returned %d neighbors\n", TOS_NODE_ID, neighborCount);
 
-		myLsa.neighborCount = (neighborCount > 6) ? 6 : neighborCount;
-		
+		myLsa.neighborCount = (neighborCount > 19) ? 19 : neighborCount;
+//		dbg(ROUTING_CHANNEL, "NeighborCount is %d\n", myLsa.neighborCount);
+
+//		myLsa.neighborCount = neighborCount;
+
 		for(i = 0; i < myLsa.neighborCount; i++) {
 			neighbor = call NeighborDiscovery.getNeighbor(i);
-			dbg(ROUTING_CHANNEL, "Node %d: Neighbor[%d] = %d\n", 
-				TOS_NODE_ID, i, neighbor);
+			//dbg(ROUTING_CHANNEL, "Node %d: Neighbor[%d] = %d\n", 
+//				TOS_NODE_ID, i, neighbor);
 			myLsa.neighbors[i] = neighbor;
 		}
 		
-		dbg(ROUTING_CHANNEL, "Node %d: sizeof(LSA)=%d, should be 9\n", TOS_NODE_ID, sizeof(LSA));
+		//dbg(ROUTING_CHANNEL, "Node %d: sizeof(LSA)=%d, should be 9\n", TOS_NODE_ID, sizeof(LSA));
 
 		if (sizeof(LSA) != 9) {
-			dbg(ROUTING_CHANNEL, "Node %d: ERROR - LSA size is wrong!\n", TOS_NODE_ID);
+			//dbg(ROUTING_CHANNEL, "Node %d: ERROR - LSA size is wrong!\n", TOS_NODE_ID);
 		}
 		
 		call Flooding.startFlood(0, (uint8_t*)&myLsa, sizeof(LSA), PROTOCOL_LINKSTATE);
@@ -128,10 +131,10 @@ implementation {
 		dbg(GENERAL_CHANNEL, "=== Node %d Link State ===\n", TOS_NODE_ID);
 		
 		for(i = 0; i < lsDatabaseSize; i++) {
-			dbg(GENERAL_CHANNEL, "LSA[%d]: Node %d, Neighbors: ", 
+			dbg(GENERAL_CHANNEL, "LSA[%d]: Node %d, Neighbors: \n", 
 				i, lsDatabase[i].nodeId);
 			for(j = 0; j < lsDatabase[i].neighborCount; j++) {
-				dbg(GENERAL_CHANNEL, "%d ", lsDatabase[i].neighbors[j]);
+				dbg(GENERAL_CHANNEL, "%d \n", lsDatabase[i].neighbors[j]);
 			}
 			dbg(GENERAL_CHANNEL, "\n");
 		}
@@ -161,16 +164,18 @@ implementation {
 
 	void updateLsDatabase(LSA* newLsa) {
 		uint8_t i;
-		
+	
 		for(i = 0; i < lsDatabaseSize; i++) {
 			if(lsDatabase[i].nodeId == newLsa->nodeId) {
 				if(newLsa->seqNum > lsDatabase[i].seqNum) {
+					if(TOS_NODE_ID==19){
+						dbg(ROUTING_CHANNEL, "Node 19 updating LSA for node %d with seq %d\n", newLsa->nodeId, newLsa->seqNum);
+					}
 					memcpy(&lsDatabase[i], newLsa, sizeof(LSA));
 				}
 				return;
 			}
 		}
-		
 		if(lsDatabaseSize < 19) {
 			memcpy(&lsDatabase[lsDatabaseSize], newLsa, sizeof(LSA));
 			lsDatabaseSize++;
@@ -197,10 +202,10 @@ implementation {
 		}
 		
 		neighborCount = call NeighborDiscovery.getNeighborCount();
-		dbg(ROUTING_CHANNEL,"getNeighborCount called, count is: %d\n",neighborCount);
+		//dbg(ROUTING_CHANNEL,"getNeighborCount called, count is: %d\n",neighborCount);
 		for(i = 0; i < neighborCount; i++) {
 			neighbor = call NeighborDiscovery.getNeighbor(i);
-			dbg(ROUTING_CHANNEL,"getNeighbor called\n");
+			//dbg(ROUTING_CHANNEL,"getNeighbor called\n");
 			if(neighbor >= 1 && neighbor <= 19) {
 				routes[neighbor-1][0] = neighbor;
 				routes[neighbor-1][1] = 1;
@@ -224,7 +229,7 @@ implementation {
 			}
 		}
 		
-		dbg(ROUTING_CHANNEL, "Node %d: Routes computed\n", TOS_NODE_ID);
+		//dbg(ROUTING_CHANNEL, "Node %d: Routes computed\n", TOS_NODE_ID);
 	}
 
 	event void LsTimer.fired() {

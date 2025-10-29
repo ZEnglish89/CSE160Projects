@@ -13,7 +13,7 @@ implementation{
     components new SimpleSendC(AM_PACK);
     FloodingP.SimpleSend -> SimpleSendC;
 
-    components new NeighborDiscoveryC(AM_PACK);
+    components NeighborDiscoveryC;
     FloodingP.NeighborDiscovery -> NeighborDiscoveryC;
 
     components LinkStateC;

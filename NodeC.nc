@@ -35,7 +35,7 @@ implementation {
     components FloodingC;
     Node.Flooding -> FloodingC;
 
-    components new NeighborDiscoveryC(AM_PACK);
+    components NeighborDiscoveryC;
     Node.NeighborDiscovery -> NeighborDiscoveryC;
 
     components LinkStateC;

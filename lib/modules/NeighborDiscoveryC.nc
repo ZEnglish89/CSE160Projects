@@ -2,13 +2,13 @@
 #include "../../includes/packet.h"
 #include <Timer.h>
 
-generic configuration NeighborDiscoveryC(int channel){
+configuration NeighborDiscoveryC{
 
     provides interface NeighborDiscovery;
 }
 
 implementation{
-    components new NeighborDiscoveryP();
+    components NeighborDiscoveryP;
     NeighborDiscovery = NeighborDiscoveryP.NeighborDiscovery;
 
     components new TimerMilliC() as neighborTimer;
@@ -17,6 +17,6 @@ implementation{
     components RandomC as Random;
     NeighborDiscoveryP.Random -> Random;
 
-    components new SimpleSendC(channel);
+    components new SimpleSendC(AM_PACK);
     NeighborDiscoveryP.SimpleSend -> SimpleSendC;
 }

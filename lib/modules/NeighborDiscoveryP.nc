@@ -3,7 +3,7 @@
 #include "../../includes/sendInfo.h"
 #include "../../includes/channels.h"
 
-generic module NeighborDiscoveryP() {
+module NeighborDiscoveryP {
     provides interface NeighborDiscovery;
 
     uses interface Timer<TMilli> as neighborTimer;
@@ -42,8 +42,8 @@ implementation {
         // Calculate delay based on node ID
         nodeDelay = (TOS_NODE_ID - 1) * 30000;
         
-        dbg(NEIGHBOR_CHANNEL, "Node %d: Starting neighbor discovery with delay %lu ms\n", 
-            TOS_NODE_ID, nodeDelay);
+//        dbg(NEIGHBOR_CHANNEL, "Node %d: Starting neighbor discovery with delay %lu ms\n", 
+//            TOS_NODE_ID, nodeDelay);
         
         call neighborTimer.startOneShot(nodeDelay);
     }
@@ -54,7 +54,7 @@ implementation {
         
         if(!discoveryActive) return;
         
-        dbg(NEIGHBOR_CHANNEL, "Node %d starting neighbor search\n", TOS_NODE_ID);
+//        dbg(NEIGHBOR_CHANNEL, "Node %d starting neighbor search\n", TOS_NODE_ID);
         
         // Create and send a neighbor discovery packet
         discoveryMsg.src = TOS_NODE_ID;
@@ -70,11 +70,11 @@ implementation {
         // Send the discovery message
         call SimpleSend.send(discoveryMsg, AM_BROADCAST_ADDR);
         
-        dbg(NEIGHBOR_CHANNEL, "Node %d sent neighbor discovery packet\n", TOS_NODE_ID);
+//        dbg(NEIGHBOR_CHANNEL, "Node %d sent neighbor discovery packet\n", TOS_NODE_ID);
         
         // Schedule next discovery in 30 seconds (30000 milliseconds)
         call neighborTimer.startOneShot(30000);
-        dbg(NEIGHBOR_CHANNEL, "Node %d scheduled next discovery in 30 seconds\n", TOS_NODE_ID);
+//        dbg(NEIGHBOR_CHANNEL, "Node %d scheduled next discovery in 30 seconds\n", TOS_NODE_ID);
     }
 
     // Add a function to add neighbors to the table
@@ -83,7 +83,7 @@ implementation {
         uint8_t i;
         for(i = 0; i < neighborCount; i++) {
             if(neighbors[i] == nodeId) {
-                dbg(NEIGHBOR_CHANNEL, "Node %d: Neighbor %d already in table, skipping\n", TOS_NODE_ID, nodeId);
+//                dbg(NEIGHBOR_CHANNEL, "Node %d: Neighbor %d already in table, skipping\n", TOS_NODE_ID, nodeId);
                 return; // Neighbor already in table
             }
         }
@@ -92,16 +92,16 @@ implementation {
         if(neighborCount < 19) {
             neighbors[neighborCount] = nodeId;
             neighborCount++;
-            dbg(NEIGHBOR_CHANNEL, "Node %d added NEW neighbor %d. Total neighbors: %d\n", TOS_NODE_ID, nodeId, neighborCount);
+//            dbg(NEIGHBOR_CHANNEL, "Node %d added NEW neighbor %d. Total neighbors: %d\n", TOS_NODE_ID, nodeId, neighborCount);
             signal NeighborDiscovery.neighborsChanged(neighborCount);
 //            dbg(ROUTING_CHANNEL,"neighborsChanged signaled, should see dbg for neighborCount changing\n");
         } else {
-            dbg(NEIGHBOR_CHANNEL, "Node %d neighbor table full, cannot add %d\n", TOS_NODE_ID, nodeId);
+//            dbg(NEIGHBOR_CHANNEL, "Node %d neighbor table full, cannot add %d\n", TOS_NODE_ID, nodeId);
         }
     }
 
     event void neighborTimer.fired() {
-        dbg(NEIGHBOR_CHANNEL, "Node %d neighbor timer fired\n", TOS_NODE_ID);
+//        dbg(NEIGHBOR_CHANNEL, "Node %d neighbor timer fired\n", TOS_NODE_ID);
         post search();
     }
 
@@ -109,7 +109,7 @@ implementation {
          
 		 // Check if this is a neighbor discovery packet
          if(strncmp((char*)myMsg->payload, "NEIGHBOR_DISC", 13) == 0) {
-			dbg(NEIGHBOR_CHANNEL, "Received neighbor discovery from node %d\n", myMsg->src);
+//			dbg(NEIGHBOR_CHANNEL, "Received neighbor discovery from node %d\n", myMsg->src);
                
 			// Send response back
 			responseMsg.src = TOS_NODE_ID;
@@ -122,12 +122,12 @@ implementation {
 			memcpy(responseMsg.payload, responsePayload, 14);
 			
 			call SimpleSend.send(responseMsg, myMsg->src);
-			dbg(NEIGHBOR_CHANNEL, "Sent neighbor response to node %d\n", myMsg->src);
+//			dbg(NEIGHBOR_CHANNEL, "Sent neighbor response to node %d\n", myMsg->src);
 			
          }
          // Otherwise this must be a neighbor discovery response
          else{
-               dbg(NEIGHBOR_CHANNEL, "Received neighbor response from node %d\n", myMsg->src);
+//               dbg(NEIGHBOR_CHANNEL, "Received neighbor response from node %d\n", myMsg->src);
          }
 
 		// Add the discoverer to our neighbor table regardless of which type it is.
@@ -155,14 +155,14 @@ implementation {
     }
 
     command uint8_t NeighborDiscovery.getNeighborCount() {
-        dbg(ROUTING_CHANNEL,"NeighborCount returning %d\n",neighborCount);
+//        dbg(ROUTING_CHANNEL,"NeighborCount returning %d\n",neighborCount);
         return neighborCount;
 //        return 1;
     }
 
     command uint16_t NeighborDiscovery.getNeighbor(uint8_t neighborIndex) {
         if(neighborIndex < neighborCount) {
-            dbg(ROUTING_CHANNEL,"neighbor returning %d\n",neighbors[neighborIndex]);
+//            dbg(ROUTING_CHANNEL,"neighbor returning %d\n",neighbors[neighborIndex]);
             return neighbors[neighborIndex];
 //            return 3;
         }

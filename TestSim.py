@@ -189,12 +189,12 @@ class TestSim:
         print "Manually triggering LSA flooding..."
         for node_id in self.moteids:
             self.ping(node_id, 0, "TRIGGER_LSA")
-        self.runTime(60000)
+        self.runTime(900000)
         
         print "=== ROUTING TABLES ==="
         for node_id in self.moteids:
             self.routeDMP(node_id)
-            self.runTime(500)
+            self.runTime(5000)
         
         print "=== LINK STATE DATABASES ==="
         for node_id in self.moteids:
@@ -238,6 +238,7 @@ def main():
     s = TestSim();
     s.runTime(10);
     s.loadTopo("example.topo");
+#    s.loadTopo("long_line.topo");
     s.loadNoise("no_noise.txt");
     s.bootAll();
 #    s.addChannel(s.COMMAND_CHANNEL);
@@ -247,7 +248,7 @@ def main():
 #    s.addChannel(s.NEIGHBOR_CHANNEL);
 
     # Let neighbor discovery run for a while
-    s.runTime(12000);  # 2 minutes to allow several discovery cycles
+    s.runTime(120000);  # 2 minutes to allow several discovery cycles
 
     '''
     # Then dump neighbor tables for all nodes
