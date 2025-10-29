@@ -49,7 +49,7 @@ implementation{
          dbg(GENERAL_CHANNEL, "Radio On\n");
          call NeighborDiscovery.findNeighbors();
          call Flooding.initializeFlooding();
-         call LinkState.initializeRouting();
+//         call LinkState.initializeRouting();
       }else{
          //Retry until successful
          call AMControl.start();
