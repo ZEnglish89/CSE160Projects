@@ -69,6 +69,7 @@ implementation{
         uint8_t uncastedNextHop;
         uint16_t NextHop;
         uint8_t payldLen;  // ADD THIS DECLARATION
+        //I learned the hard way that declaring variables in the middle of commands rather than the beginning is a one-way ticket to permanent syntax errors.
 
         // Check if this is a link state packet (PROTOCOL_LINKSTATE)
         if (msg->protocol == PROTOCOL_LINKSTATE) {
@@ -111,6 +112,8 @@ implementation{
         }
 
         // Cast to match packet header requirements
+        //I'm not sure if we actually need to cast this or if the types handle themselves,
+        //but it doesn't hurt.
         NextHop = (uint16_t) uncastedNextHop;
 
         // Decrement TTL
@@ -119,7 +122,7 @@ implementation{
         // If TTL still valid, forward packet
         if(head.IPTTL > 0){
             memcpy(msg->payload, &head, IP_HEADER_SIZE);
-
+            //pack up all the new information for the next hop, same as in sendMessage()
             msg->src = TOS_NODE_ID;
             msg->dest = NextHop;
             msg->TTL = 0;

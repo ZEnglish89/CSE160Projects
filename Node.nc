@@ -83,6 +83,7 @@ implementation{
          call IP.handleMessage(myMsg,len,myMsg->src);
          return msg;
       }
+//old code, overwritten by the else statement above.
 /*         // otherwise, this is a flooding packet. based on our current setup, if it's not used for neighbordiscovery it must be a flood.
          else{
                dbg(FLOODING_CHANNEL, "Node %d: Received flooding packet from node %d, handling\n", TOS_NODE_ID, myMsg->src);
@@ -98,6 +99,8 @@ implementation{
 
    event void CommandHandler.ping(uint16_t destAddr, uint8_t *payld){
       dbg(GENERAL_CHANNEL, "PING EVENT - Sending to %d\n", destAddr);
+      //Rather than making a packet ourselves and sending it immediately, call the IP command so
+      //we can make a "better" packet and route it across multiple hops.
       call IP.sendMessage(destAddr,payld);
       //      makePack(&sendPackage, TOS_NODE_ID, destAddr, 0, 0, 0, payld, PACKET_MAX_PAYLOAD_SIZE);
       //      call Sender.send(sendPackage, destAddr);
@@ -150,6 +153,8 @@ implementation{
    // can drop and route around inactive nodes quickly.
    event void NeighborDiscovery.neighborsChanged(uint8_t neighborCount){
       dbg(NEIGHBOR_CHANNEL, "Node %d: neighborsChanged signaled, neighborCount=%d\n", TOS_NODE_ID, neighborCount);
+      //whenever the neighbor tables change, that's our sign to re-route because our routes may no longer be
+      //optimal or even valid.
       call LinkState.startRouting();
    }
 

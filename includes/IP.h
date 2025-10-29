@@ -3,7 +3,10 @@
 
 #include "packet.h"
 
-//Header for Flooding packets
+//Header for IP packets
+//Basically a slimmer version of the Flooding header, because we want to
+//conserve payload space but it's still useful to have a separate IPSrc and
+//IPDest etc in addition to the immediate ones.
 typedef nx_struct IPHeader {
     nx_uint16_t IPSrc;      // Node which originally sent the packet
     nx_uint16_t IPDest;     // The destination Node
