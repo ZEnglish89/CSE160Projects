@@ -50,13 +50,16 @@ implementation {
 		}
 		
 		lsDatabaseSize = 0;
-		currentSeqNum = 0;
+//		currentSeqNum = 0;
 		routingInitialized = TRUE;
-		
+
+		//setting for one minute to allow NeighborDiscovery to happen before we route again.
+		call LsTimer.startOneShot(60000);
+
 		// Wait longer before sending first LSA to allow neighbor discovery
-		call LsTimer.startOneShot(120000);  // 2 minutes first time
+//		call LsTimer.startOneShot(120000);  // 2 minutes first time
 		// Then periodic every 60 seconds
-		call LsTimer.startPeriodic(60000);
+//		call LsTimer.startPeriodic(60000);
 		
 		//dbg(ROUTING_CHANNEL, "Node %d: Routing initialized, first LSA in 2 minutes\n", TOS_NODE_ID);
 	}

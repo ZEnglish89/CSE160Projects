@@ -20,6 +20,8 @@ implementation {
     uint8_t neighborCount = 0;
     bool discoveryActive = FALSE;
     
+//    uint16_t oldNeighbors[19];
+//    uint8_t oldNeighborCount = 0;
     // Declare the task first
     task void search();
     
@@ -67,11 +69,18 @@ implementation {
         payload[13] = '\0';
         memcpy(discoveryMsg.payload, payload, 14);
         
+        //reset the routing table, set a timer before we route again, so the new data will be used.
+        call LinkState.initializeRouting();
+        //reset the neighbor table as we send a new round of packets, so that the responses
+        //populate the table and any dropped neighbors are left out.
+        initializeNeighborTable();
+        
         // Send the discovery message
         call SimpleSend.send(discoveryMsg, AM_BROADCAST_ADDR);
         
 //        dbg(NEIGHBOR_CHANNEL, "Node %d sent neighbor discovery packet\n", TOS_NODE_ID);
         
+
         // Schedule next discovery in 30 seconds (30000 milliseconds)
         call neighborTimer.startOneShot(30000);
 //        dbg(NEIGHBOR_CHANNEL, "Node %d scheduled next discovery in 30 seconds\n", TOS_NODE_ID);
