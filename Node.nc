@@ -29,6 +29,8 @@ module Node{
    uses interface NeighborDiscovery;
 
    uses interface LinkState;
+
+   uses interface IP;
 }
 
 implementation{
@@ -76,13 +78,18 @@ implementation{
 			}
 			return msg;
 		}
-         // otherwise, this is a flooding packet. based on our current setup, if it's not used for neighbordiscovery it must be a flood.
+      //otherwise, let the IP module handle it, and it can call Flooding if necessary from within itself.
+      else{
+         call IP.handleMessage(myMsg,len,myMsg->src);
+         return msg;
+      }
+/*         // otherwise, this is a flooding packet. based on our current setup, if it's not used for neighbordiscovery it must be a flood.
          else{
                dbg(FLOODING_CHANNEL, "Node %d: Received flooding packet from node %d, handling\n", TOS_NODE_ID, myMsg->src);
                call Flooding.handleFloodPacket(myMsg, len, myMsg->src);
                return msg;
          }
-         
+*/         
       }
       //we shouldn't ever get here, but still.
       dbg(GENERAL_CHANNEL, "Packet Received - Unknown Packet Type %d\n", len);
@@ -91,8 +98,9 @@ implementation{
 
    event void CommandHandler.ping(uint16_t destAddr, uint8_t *payld){
       dbg(GENERAL_CHANNEL, "PING EVENT \n");
-      makePack(&sendPackage, TOS_NODE_ID, destAddr, 0, 0, 0, payld, PACKET_MAX_PAYLOAD_SIZE);
-      call Sender.send(sendPackage, destAddr);
+      call IP.sendMessage(destAddr,payld);
+//      makePack(&sendPackage, TOS_NODE_ID, destAddr, 0, 0, 0, payld, PACKET_MAX_PAYLOAD_SIZE);
+//      call Sender.send(sendPackage, destAddr);
    }
 
    event void CommandHandler.neighDisc(){

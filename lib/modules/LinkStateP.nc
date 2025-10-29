@@ -232,6 +232,10 @@ implementation {
 		//dbg(ROUTING_CHANNEL, "Node %d: Routes computed\n", TOS_NODE_ID);
 	}
 
+	command uint8_t LinkState.getNextHop(uint8_t destination){
+		return routes[destination-1][0];
+	}
+
 	event void LsTimer.fired() {
 		call LinkState.startRouting();
 	}
