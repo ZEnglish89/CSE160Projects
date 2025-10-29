@@ -70,10 +70,10 @@ implementation {
         memcpy(discoveryMsg.payload, payload, 14);
         
         //reset the routing table, set a timer before we route again, so the new data will be used.
-        call LinkState.initializeRouting();
+//        call LinkState.initializeRouting();
         //reset the neighbor table as we send a new round of packets, so that the responses
         //populate the table and any dropped neighbors are left out.
-        initializeNeighborTable();
+//        initializeNeighborTable();
         
         // Send the discovery message
         call SimpleSend.send(discoveryMsg, AM_BROADCAST_ADDR);
