@@ -12,6 +12,7 @@ char FLOODING_CHANNEL[]="flooding";
 
 // Project 2
 char ROUTING_CHANNEL[]="routing";
+char IP_CHANNEL[] = "IP";
 
 // Project 3
 char TRANSPORT_CHANNEL[]="transport";

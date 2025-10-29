@@ -7,5 +7,6 @@ interface LinkState{
     command void startRouting();
     command void printLinkState();
     command void printRouteTable();
+    command uint8_t getNextHop(uint8_t destination);
     
 }
