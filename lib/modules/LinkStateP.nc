@@ -286,6 +286,6 @@ implementation {
 	}
 
 	event void NeighborDiscovery.neighborsChanged(uint8_t externalNeighborCount){
-		computeRoutes();
+		call LinkState.startRouting();
 	}
 }

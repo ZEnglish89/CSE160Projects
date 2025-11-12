@@ -203,8 +203,8 @@ class TestSim:
         print "\n=== TESTING END-TO-END ROUTING ==="
         if len(self.moteids) >= 19:
             source = 1
-            dest = 19
-            print "Node %d pinging node %d (should traverse 18 hops)" % (source, dest)
+            dest = 7
+            print "Node %d pinging node %d (should traverse erm hops)" % (source, dest)
             self.ping(source, dest, "END_TO_END_TEST")
             self.runTime(60000)
         else:
@@ -215,7 +215,7 @@ class TestSim:
             self.runTime(60000)
 
         self.moteOff(4)
-        self.runTime(120000)
+        self.runTime(12000)
 
 #        print "=== ROUTING TABLES ==="
 #        for node_id in self.moteids:
@@ -225,8 +225,8 @@ class TestSim:
         print "\n=== TESTING END-TO-END ROUTING ROUND TWO ==="
         if len(self.moteids) >= 19:
             source = 1
-            dest = 19
-            print "Node %d pinging node %d (should traverse 18 hops)" % (source, dest)
+            dest = 6
+            print "Node %d pinging node %d (should traverse erm hops)" % (source, dest)
             self.ping(source, dest, "END_TO_END_TEST")
             self.runTime(60000)
         else:
@@ -257,15 +257,15 @@ def main():
     s = TestSim();
     s.runTime(10);
     #s.loadTopo("example.topo");
-    s.loadTopo("example.topo");
+    s.loadTopo("long_line.topo");
 
     s.loadNoise("no_noise.txt");
     s.bootAll();
     s.addChannel(s.COMMAND_CHANNEL);
     s.addChannel(s.GENERAL_CHANNEL);
 #    s.addChannel(s.FLOODING_CHANNEL);
-    s.addChannel(s.ROUTING_CHANNEL);
-    s.addChannel(s.NEIGHBOR_CHANNEL);
+#    s.addChannel(s.ROUTING_CHANNEL);
+#    s.addChannel(s.NEIGHBOR_CHANNEL);
 
     # Let neighbor discovery run for a while
     s.runTime(120000);  # 2 minutes to allow several discovery cycles
