@@ -12,7 +12,8 @@ typedef nx_struct TCPHeader {
     nx_uint16_t SrcPort;    // The port in the source Node which this connection is using
     nx_uint16_t DestPort;   // Guess.
     nx_uint32_t SeqNum;     // Sequence Number
-    nx_uint32_t ACK;        // Acknowledgement field. For both SeqNum and ACK the textbook specifies 32-bits, so I'm using that here.
+//    nx_uint32_t ACK;        // Acknowledgement field. For both SeqNum and ACK the textbook specifies 32-bits, so I'm using that here.
+//We don't actually need the ACK field because we're using the SeqNum field for acknowledgements.
     
     // The six possible FLAG fields. I've included them as separate variables rather than one 6-bit field for clarity.
     // It could potentially have been better to have them as bools rather than one-bit integers, but I'm not sure if there's

@@ -101,7 +101,7 @@ implementation{
       dbg(GENERAL_CHANNEL, "PING EVENT - Sending to %d\n", destAddr);
       //Rather than making a packet ourselves and sending it immediately, call the IP command so
       //we can make a "better" packet and route it across multiple hops.
-      call IP.sendMessage(destAddr,payld);
+      call IP.sendMessage(destAddr,payld,PROTOCOL_PING);
       //      makePack(&sendPackage, TOS_NODE_ID, destAddr, 0, 0, 0, payld, PACKET_MAX_PAYLOAD_SIZE);
       //      call Sender.send(sendPackage, destAddr);
    }

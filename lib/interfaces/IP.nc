@@ -5,6 +5,6 @@
 interface IP{
     //we're doing basically just one thing here, and that's checking where to forward things to,
     //packing them up properly, and sending them off.
-    command void sendMessage(uint16_t destAddr, uint8_t *payld);
+    command void sendMessage(uint16_t destAddr, uint8_t *payld, nx_uint8_t protocol);
     command void handleMessage(pack* msg, uint8_t pktLen, uint16_t senderId);
 }

@@ -11,7 +11,7 @@ module IPP{
 }
 
 implementation{
-    command void IP.sendMessage(uint16_t destAddr, uint8_t *payld){
+    command void IP.sendMessage(uint16_t destAddr, uint8_t *payld, nx_uint8_t protocol){
         pack msg;
         IPHeader head;
         uint8_t uncastedNextHop;
@@ -20,7 +20,7 @@ implementation{
         
         // If this is meant to be broadcast, let Flooding handle it.
         if (destAddr == 0){
-            call Flooding.startFlood(destAddr, payld, PACKET_MAX_PAYLOAD_SIZE, PROTOCOL_PING);
+            call Flooding.startFlood(destAddr, payld, PACKET_MAX_PAYLOAD_SIZE, protocol);
             return;
         }
 
@@ -40,7 +40,7 @@ implementation{
         head.IPSrc = TOS_NODE_ID;
         head.IPDest = destAddr;
         head.IPTTL = MAX_TTL;
-        head.IPProtocol = PROTOCOL_PING;
+        head.IPProtocol = protocol;
 
         // Copy IP header into packet payload
         memcpy(msg.payload, &head, IP_HEADER_SIZE);
@@ -54,7 +54,7 @@ implementation{
         msg.dest = NextHop;
         msg.TTL = 0;
         msg.seq = 0;
-        msg.protocol = PROTOCOL_PING;
+        msg.protocol = protocol;
 
         dbg(GENERAL_CHANNEL, "Node %d: Sending IP packet to %d via next hop %d\n", 
             TOS_NODE_ID, destAddr, NextHop);
@@ -127,7 +127,7 @@ implementation{
             msg->dest = NextHop;
             msg->TTL = 0;
             msg->seq = 0;
-            msg->protocol = PROTOCOL_PING;
+//            msg->protocol = head.protocol;//no longer need this line because we'll just be leaving the protocol as whatever it already was.
 
             dbg(GENERAL_CHANNEL, "Node %d: Forwarding packet to %d via %d (TTL: %d)\n", 
                 TOS_NODE_ID, finalDest, NextHop, head.IPTTL);
