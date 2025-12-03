@@ -240,6 +240,7 @@ implementation{
        // Server: Check for new connections and read data
        if(serverReady && testServerFd != NULL_SOCKET) {
            acceptedFd = call TCP.accept(testServerFd);
+//           dbg(TRANSPORT_CHANNEL,"acceptedFd: %d\n",acceptedFd);
            if(acceptedFd != NULL_SOCKET) {
                // Add to accepted sockets list
                if(acceptedCount < 5) {
@@ -250,9 +251,9 @@ implementation{
                }
            }
            
-           // Read data from all accepted sockets
-/*           if(TOS_NODE_ID==1){
-            dbg(TRANSPORT_CHANNEL,"Node 1 Reading from Sockets");
+/*           // Read data from all accepted sockets
+           if(TOS_NODE_ID==1){
+            dbg(TRANSPORT_CHANNEL,"Node 1 Reading from Sockets, AcceptedCount: %d",acceptedCount);
            }
 */
             for(i = 0; i < acceptedCount; i++) {
@@ -263,7 +264,7 @@ implementation{
                         TOS_NODE_ID, acceptedSockets[i], bytesRead, buffer);
                   
                   // Also print to GENERAL_CHANNEL for visibility
-                  dbg(GENERAL_CHANNEL, "Node %d: TCP Data Received: %.*s\n",
+                  dbg(TRANSPORT_CHANNEL, "Node %d: TCP Data Received: %.*s\n",
                         TOS_NODE_ID, bytesRead, buffer);
                }
             }

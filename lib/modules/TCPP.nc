@@ -326,42 +326,41 @@ implementation {
                 sock->lastByteAcked = header->AckNum;
             }
         }
-        if(header->flags){
-            // Process SYN+ACK (for SYN_SENT state completing handshake)
-            if((TCP_FLAG_SYN) && (TCP_FLAG_ACK)) {
-                if(sock->state == SYN_SENT && header->AckNum == sock->nextSequence) {
-                    sock->nextExpected = header->SeqNum + 1;
-                    sock->state = ESTABLISHED;
-                    dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d SYN-ACK received, transitioning to ESTABLISHED\n",
-                        TOS_NODE_ID, sockId);
-                    sendAck = TRUE;
-                }
-            }
-            // Process FIN flag
-            else if(TCP_FLAG_FIN) {
+        // Process SYN+ACK (for SYN_SENT state completing handshake)
+        if(header->flags && ((TCP_FLAG_SYN) && (TCP_FLAG_ACK))) {
+            if((sock->state == SYN_SENT)||(sock->state == SYN_RCVD) && header->AckNum == sock->nextSequence) {
                 sock->nextExpected = header->SeqNum + 1;
-                
-                if(sock->state == ESTABLISHED) {
-                    sock->state = CLOSE_WAIT;
-                    dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d FIN received in ESTABLISHED, moving to CLOSE_WAIT\n",
-                        TOS_NODE_ID, sockId);
-                } else if(sock->state == FIN_WAIT_1) {
-                    sock->state = CLOSING;
-                    dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d FIN received in FIN_WAIT_1, moving to CLOSING\n",
-                        TOS_NODE_ID, sockId);
-                } else if(sock->state == FIN_WAIT_2) {
-                    sock->state = TIME_WAIT;
-                    sock->timeWaitCount = 100;
-                    dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d FIN received in FIN_WAIT_2, moving to TIME_WAIT\n",
-                        TOS_NODE_ID, sockId);
-                }
-                
+                sock->state = ESTABLISHED;
+                dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d SYN-ACK received, transitioning to ESTABLISHED\n",
+                    TOS_NODE_ID, sockId);
                 sendAck = TRUE;
             }
+        }  
+        // Process FIN flag
+        else if(header->flags && TCP_FLAG_FIN) {
+            sock->nextExpected = header->SeqNum + 1;
+            
+            if(sock->state == ESTABLISHED) {
+                sock->state = CLOSE_WAIT;
+                dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d FIN received in ESTABLISHED, moving to CLOSE_WAIT\n",
+                    TOS_NODE_ID, sockId);
+            } else if(sock->state == FIN_WAIT_1) {
+                sock->state = CLOSING;
+                dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d FIN received in FIN_WAIT_1, moving to CLOSING\n",
+                    TOS_NODE_ID, sockId);
+            } else if(sock->state == FIN_WAIT_2) {
+                sock->state = TIME_WAIT;
+                sock->timeWaitCount = 100;
+                dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d FIN received in FIN_WAIT_2, moving to TIME_WAIT\n",
+                    TOS_NODE_ID, sockId);
+            }
+            
+            sendAck = TRUE;
         }
         // Process data
-        else if(dataLen > 0) {
-            if(header->SeqNum == sock->nextExpected) {
+        if(dataLen > 0) {
+            dbg(TRANSPORT_CHANNEL,"Node: %d copying data into buffer\n",TOS_NODE_ID);
+            if(header->SeqNum == sock->nextExpected || (sendAck && header->SeqNum+1 == sock->nextExpected)) {
                 // In-order data: copy to receive buffer
                 copyLen = dataLen;
                 bufferAvailable = SOCKET_BUFFER_SIZE - (sock->lastByteRcvd - sock->lastByteRead);
@@ -441,7 +440,8 @@ implementation {
         sockId = (socket_t)(sock - sockets);
         
         // Calculate available window
-        windowSize = min(sock->peerWindow, sock->effectiveWindow);
+//        windowSize = min(sock->peerWindow, sock->effectiveWindow);
+        windowSize = sock->effectiveWindow;
         windowUsed = sock->lastByteSent - sock->lastByteAcked;
         windowAvailable = windowSize - windowUsed;
         
@@ -627,12 +627,24 @@ implementation {
             return NULL_SOCKET;
         }
         
+        // Debug: print listening socket state and port
+//        dbg(TRANSPORT_CHANNEL, "Node %d: accept() called for fd=%d (listen state=%d, port=%hu)\n",
+//            TOS_NODE_ID, fd, listenSock->state, listenSock->src);
+
         // Look for established connections
         for(j = 0; j < MAX_NUM_OF_SOCKETS; j++) {
             if(sockets[j].state == ESTABLISHED && sockets[j].src == listenSock->src) {
-                dbg(TRANSPORT_CHANNEL, "Node %d: Accepted connection on socket %d\n", 
-                    TOS_NODE_ID, j);
+                dbg(TRANSPORT_CHANNEL, "Node %d: Accepted connection on socket %d (local port %hu)\n", 
+                    TOS_NODE_ID, j, sockets[j].src);
                 return j;
+            }
+        }
+
+        // Debug: list any established sockets (for troubleshooting)
+        for(j = 0; j < MAX_NUM_OF_SOCKETS; j++) {
+            if(sockets[j].state == ESTABLISHED) {
+                dbg(TRANSPORT_CHANNEL, "Node %d: Found ESTABLISHED socket %d (local port %hu)\n",
+                    TOS_NODE_ID, j, sockets[j].src);
             }
         }
         
@@ -688,17 +700,26 @@ implementation {
         uint32_t startIdx;
         uint16_t firstPart;
         
+//        dbg(TRANSPORT_CHANNEL,"reading socket %d\n",fd);
+
         if(fd >= MAX_NUM_OF_SOCKETS) {
             return 0;
         }
         
+//        dbg(TRANSPORT_CHANNEL,"still reading socket %d\n",fd);
+
         sock = &sockets[fd];
         available = sock->lastByteRcvd - sock->lastByteRead;
+        
+        dbg(TRANSPORT_CHANNEL, "Node %d: TCP.read socket %d lastByteRcvd=%lu lastByteRead=%lu available=%lu\n",
+            TOS_NODE_ID, fd, sock->lastByteRcvd, sock->lastByteRead, available);
         
         if(available == 0) {
             return 0;
         }
         
+//        dbg(TRANSPORT_CHANNEL,"yep still reading socket %d\n",fd);
+
         readLen = bufflen;
         if(readLen > available) {
             readLen = available;
@@ -855,7 +876,7 @@ implementation {
             case CLOSING:
             case CLOSE_WAIT:
             case LAST_ACK:
-                            // Handle SYN-ACK for our connection attempt
+/*                            // Handle SYN-ACK for our connection attempt
                 if((header.flags & TCP_FLAG_SYN) && (header.flags & TCP_FLAG_ACK)) {
                     if(header.AckNum == sock->nextSequence) {
                         removeAcknowledged(header.AckNum);
@@ -881,9 +902,10 @@ implementation {
                 }
 
                 else{
+*/
                     return handleEstablishedConnection(sock, &header, 
                     payload + TCP_HEADER_SIZE, dataLen);
-                }
+//                }
 
                 break;
             case TIME_WAIT:
