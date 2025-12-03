@@ -96,7 +96,7 @@ implementation{
 		}
       // Check if this is a TCP packet
       else if(myMsg->protocol == PROTOCOL_TCP) {
-          call TCP.receive(myMsg);
+          call TCP.receive(myMsg, len);
           return msg;
       }
       //otherwise, let the IP module handle it
@@ -251,6 +251,10 @@ implementation{
            }
            
            // Read data from all accepted sockets
+/*           if(TOS_NODE_ID==1){
+            dbg(TRANSPORT_CHANNEL,"Node 1 Reading from Sockets");
+           }
+*/
             for(i = 0; i < acceptedCount; i++) {
                bytesRead = call TCP.read(acceptedSockets[i], buffer, sizeof(buffer));
                if(bytesRead > 0) {

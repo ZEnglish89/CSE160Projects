@@ -220,6 +220,18 @@ implementation {
         // Add to retransmission queue if needed
         if(addToQueue) {
             addToUnackedQueue(header->SeqNum, dataLen, data, sockId, isSYN, isFIN);
+
+            // Increment sequence number based on what we just sent
+            // SYN and FIN each consume 1 byte, data packets consume their byte count
+            if(isSYN) {
+                sock->nextSequence++;
+            }
+            if(isFIN) {
+                sock->nextSequence++;
+            }
+            if(dataLen > 0) {
+                sock->nextSequence += dataLen;
+            }
         }
         
         return SUCCESS;
@@ -280,9 +292,10 @@ implementation {
         synAckHeader.AdvWindow = newSock->effectiveWindow;
         synAckHeader.UrgPtr = 0;
         
-        newSock->nextSequence++;  // SYN consumes 1 byte
-        
         sendTCPPacket(newSock, &synAckHeader, NULL, 0, TRUE, TRUE, FALSE);
+        
+        // Update lastByteSent to reflect the SYN-ACK we just sent
+        newSock->lastByteSent = newSock->nextSequence;
         
         dbg("Project3TGen", "Debug(1): Syn Ack Packet Sent to Node %d for Port %hu\n",
             newSock->dest.addr, newSock->dest.port);
@@ -301,71 +314,57 @@ implementation {
         socket_t sockId = (socket_t)(sock - sockets);
         uint16_t copyLen;
         uint32_t bufferAvailable;
+        bool sendAck = FALSE;
         
-        // Update peer window
+        // Always update peer window from incoming packet
         sock->peerWindow = header->AdvWindow;
         
-        // Handle different packet types based on flags
+        // Process ACK flag
         if(header->flags & TCP_FLAG_ACK) {
-            // Remove acknowledged segments from queue
             removeAcknowledged(header->AckNum);
-            
-            // Update last byte acknowledged
-            if(isAcknowledged(sock->lastByteSent, header->AckNum)) {
+            if(header->AckNum > sock->lastByteAcked) {
                 sock->lastByteAcked = header->AckNum;
             }
-            
-            // Check if this ACK completes connection establishment
-            if(sock->state == SYN_RCVD && (header->flags & TCP_FLAG_ACK)) {
-                sock->state = ESTABLISHED;
-                dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d ESTABLISHED\n", TOS_NODE_ID, sockId);
-            }
-            
-            // Check if this ACK completes FIN
-            if((sock->state == FIN_WAIT_1 || sock->state == CLOSING) && 
-               (header->flags & TCP_FLAG_ACK)) {
-                if(sock->state == FIN_WAIT_1) {
-                    sock->state = FIN_WAIT_2;
-                    dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d moved to FIN_WAIT_2\n", TOS_NODE_ID, sockId);
-                } else {
-                    sock->state = TIME_WAIT;
-                    sock->timeWaitCount = 100; // 10 seconds at 100ms ticks
-                    dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d moved to TIME_WAIT\n", TOS_NODE_ID, sockId);
+        }
+        if(header->flags){
+            // Process SYN+ACK (for SYN_SENT state completing handshake)
+            if((TCP_FLAG_SYN) && (TCP_FLAG_ACK)) {
+                if(sock->state == SYN_SENT && header->AckNum == sock->nextSequence) {
+                    sock->nextExpected = header->SeqNum + 1;
+                    sock->state = ESTABLISHED;
+                    dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d SYN-ACK received, transitioning to ESTABLISHED\n",
+                        TOS_NODE_ID, sockId);
+                    sendAck = TRUE;
                 }
             }
-            
-            if(header->flags & TCP_FLAG_FIN) {
-                // Handle FIN
-                sock->nextExpected = header->SeqNum + 1;  // FIN consumes 1 byte
+            // Process FIN flag
+            else if(TCP_FLAG_FIN) {
+                sock->nextExpected = header->SeqNum + 1;
                 
                 if(sock->state == ESTABLISHED) {
                     sock->state = CLOSE_WAIT;
-                    dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d received FIN, moving to CLOSE_WAIT\n",
+                    dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d FIN received in ESTABLISHED, moving to CLOSE_WAIT\n",
+                        TOS_NODE_ID, sockId);
+                } else if(sock->state == FIN_WAIT_1) {
+                    sock->state = CLOSING;
+                    dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d FIN received in FIN_WAIT_1, moving to CLOSING\n",
+                        TOS_NODE_ID, sockId);
+                } else if(sock->state == FIN_WAIT_2) {
+                    sock->state = TIME_WAIT;
+                    sock->timeWaitCount = 100;
+                    dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d FIN received in FIN_WAIT_2, moving to TIME_WAIT\n",
                         TOS_NODE_ID, sockId);
                 }
                 
-                // Send ACK for FIN
-                ackHeader.SrcPort = sock->src;
-                ackHeader.DestPort = sock->dest.port;
-                ackHeader.SeqNum = sock->nextSequence;
-                ackHeader.AckNum = sock->nextExpected;
-                ackHeader.flags = TCP_FLAG_ACK;
-                ackHeader.reserved = 0;
-                ackHeader.AdvWindow = sock->effectiveWindow;
-                ackHeader.UrgPtr = 0;
-                
-                sendTCPPacket(sock, &ackHeader, NULL, 0, FALSE, FALSE, FALSE);
+                sendAck = TRUE;
             }
         }
-        
-        // Handle data
-        if(dataLen > 0) {
-            // Check if data is in order
+        // Process data
+        else if(dataLen > 0) {
             if(header->SeqNum == sock->nextExpected) {
-                // Copy data to receive buffer
+                // In-order data: copy to receive buffer
                 copyLen = dataLen;
                 bufferAvailable = SOCKET_BUFFER_SIZE - (sock->lastByteRcvd - sock->lastByteRead);
-                
                 if(copyLen > bufferAvailable) {
                     copyLen = bufferAvailable;
                 }
@@ -373,28 +372,56 @@ implementation {
                 if(copyLen > 0) {
                     memcpy(sock->rcvdBuff + (sock->lastByteRcvd % SOCKET_BUFFER_SIZE), data, copyLen);
                     sock->lastByteRcvd += copyLen;
-                    sock->nextExpected = header->SeqNum + copyLen;
-                    
-                    dbg(TRANSPORT_CHANNEL, "Node %d: Received %d bytes on socket %d (Seq: %lu, NextExpected: %lu)\n",
-                        TOS_NODE_ID, copyLen, sockId, header->SeqNum, sock->nextExpected);
+                    sock->nextExpected += copyLen;
+                    dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d received %d bytes (Seq: %lu, NextExpected now: %lu)\n",
+                        TOS_NODE_ID, sockId, copyLen, header->SeqNum, sock->nextExpected);
                 }
                 
-                // Send ACK for received data
-                ackHeader.SrcPort = sock->src;
-                ackHeader.DestPort = sock->dest.port;
-                ackHeader.SeqNum = sock->nextSequence;
-                ackHeader.AckNum = sock->nextExpected;
-                ackHeader.flags = TCP_FLAG_ACK;
-                ackHeader.reserved = 0;
-                ackHeader.AdvWindow = SOCKET_BUFFER_SIZE - (sock->lastByteRcvd - sock->lastByteRead);
-                ackHeader.UrgPtr = 0;
-                
-                sendTCPPacket(sock, &ackHeader, NULL, 0, FALSE, FALSE, FALSE);
+                sendAck = TRUE;
             } else {
-                // Out of order data - store for later or discard (simplified)
-                dbg(TRANSPORT_CHANNEL, "Node %d: Out of order data on socket %d (got: %lu, expected: %lu)\n",
+                // Out-of-order data
+                dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d out-of-order data (Seq: %lu, expected: %lu)\n",
                     TOS_NODE_ID, sockId, header->SeqNum, sock->nextExpected);
             }
+        }
+        // Process plain ACK (no data, no SYN, no FIN)
+        else if(header->flags & TCP_FLAG_ACK) {
+            // Plain ACK already handled above
+            if(sock->state == SYN_RCVD) {
+                sock->state = ESTABLISHED;
+                dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d SYN_RCVD ACK received, transitioning to ESTABLISHED\n",
+                    TOS_NODE_ID, sockId);
+            } else if(sock->state == FIN_WAIT_1) {
+                sock->state = FIN_WAIT_2;
+                dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d FIN_WAIT_1 ACK received, moving to FIN_WAIT_2\n",
+                    TOS_NODE_ID, sockId);
+            } else if(sock->state == CLOSING) {
+                sock->state = TIME_WAIT;
+                sock->timeWaitCount = 100;
+                dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d CLOSING ACK received, moving to TIME_WAIT\n",
+                    TOS_NODE_ID, sockId);
+            } else if(sock->state == LAST_ACK) {
+                sock->state = CLOSED;
+                dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d LAST_ACK ACK received, moving to CLOSED\n",
+                    TOS_NODE_ID, sockId);
+            }
+        }
+        
+        // Send ACK if needed
+        if(sendAck) {
+            ackHeader.SrcPort = sock->src;
+            ackHeader.DestPort = sock->dest.port;
+            ackHeader.SeqNum = sock->nextSequence;
+            ackHeader.AckNum = sock->nextExpected;
+            ackHeader.flags = TCP_FLAG_ACK;
+            ackHeader.reserved = 0;
+            ackHeader.AdvWindow = SOCKET_BUFFER_SIZE - (sock->lastByteRcvd - sock->lastByteRead);
+            ackHeader.UrgPtr = 0;
+            
+            sendTCPPacket(sock, &ackHeader, NULL, 0, FALSE, FALSE, FALSE);
+            
+            dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d sent ACK (AckNum: %lu)\n",
+                TOS_NODE_ID, sockId, ackHeader.AckNum);
         }
         
         return SUCCESS;
@@ -447,8 +474,7 @@ implementation {
             sendTCPPacket(sock, &header, data + sent, sendSize, TRUE, FALSE, FALSE);
             
             // Update state
-            sock->lastByteSent = sock->nextSequence + sendSize;
-            sock->nextSequence += sendSize;
+            sock->lastByteSent = sock->nextSequence;
             sent += sendSize;
             windowAvailable -= sendSize;
             
@@ -576,10 +602,11 @@ implementation {
         synHeader.AdvWindow = sock->effectiveWindow;
         synHeader.UrgPtr = 0;
         
-        sock->nextSequence++;  // SYN consumes 1 byte
-        
         // Send SYN
         sendTCPPacket(sock, &synHeader, NULL, 0, TRUE, TRUE, FALSE);
+        
+        // Update lastByteSent to reflect the SYN we just sent
+        sock->lastByteSent = sock->nextSequence;
         
         dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d connecting from port %hu to %d:%hu (Seq: %lu)\n",
             TOS_NODE_ID, fd, synHeader.SrcPort, addr->addr, addr->port, synHeader.SeqNum);
@@ -727,8 +754,6 @@ implementation {
             finHeader.AdvWindow = sock->effectiveWindow;
             finHeader.UrgPtr = 0;
             
-            sock->nextSequence++;  // FIN consumes 1 byte
-            
             sendTCPPacket(sock, &finHeader, NULL, 0, TRUE, FALSE, TRUE);
             
             sock->state = FIN_WAIT_1;
@@ -746,8 +771,6 @@ implementation {
             finHeader.AdvWindow = sock->effectiveWindow;
             finHeader.UrgPtr = 0;
             
-            sock->nextSequence++;  // FIN consumes 1 byte
-            
             sendTCPPacket(sock, &finHeader, NULL, 0, TRUE, FALSE, TRUE);
             
             sock->state = LAST_ACK;
@@ -764,7 +787,7 @@ implementation {
         return SUCCESS;
     }
 
-    command error_t TCP.receive(pack* package) {
+    command error_t TCP.receive(pack* package, uint8_t pktLen) {
         TCPHeader header;
         uint16_t dataLen;
         socket_store_t* sock;
@@ -796,11 +819,13 @@ implementation {
         header.AdvWindow = (payload[14] << 8) | payload[15];
         header.UrgPtr = (payload[16] << 8) | payload[17];
         
-        // Calculate data length
-        dataLen = PACKET_MAX_PAYLOAD_SIZE - TCP_HEADER_SIZE - IP_HEADER_SIZE;
+        // Calculate data length from actual packet length
+        if (pktLen > (uint8_t)(IP_HEADER_SIZE + TCP_HEADER_SIZE)) {
+            dataLen = pktLen - IP_HEADER_SIZE - TCP_HEADER_SIZE;
+        } else {
+            dataLen = 0;
+        }
         
-        dbg("Project3TGen", "Debug(1): TCP Packet Arrived from Node %d for Port %hu (flags: 0x%02x)\n",
-            srcAddr, header.DestPort, header.flags);
         
         dbg(TRANSPORT_CHANNEL, "Node %d: Received TCP packet from %d:%hu to port %hu, flags: 0x%02x, Seq: %lu, Ack: %lu\n",
             TOS_NODE_ID, srcAddr, header.SrcPort, header.DestPort, 
@@ -823,7 +848,14 @@ implementation {
         // Handle based on socket state
         switch(sock->state) {
             case SYN_SENT:
-                // Handle SYN-ACK for our connection attempt
+            case SYN_RCVD:
+            case ESTABLISHED:
+            case FIN_WAIT_1:
+            case FIN_WAIT_2:
+            case CLOSING:
+            case CLOSE_WAIT:
+            case LAST_ACK:
+                            // Handle SYN-ACK for our connection attempt
                 if((header.flags & TCP_FLAG_SYN) && (header.flags & TCP_FLAG_ACK)) {
                     if(header.AckNum == sock->nextSequence) {
                         removeAcknowledged(header.AckNum);
@@ -847,20 +879,14 @@ implementation {
                             TOS_NODE_ID, (socket_t)(sock - sockets));
                     }
                 }
-                break;
-                
-            case SYN_RCVD:
-            case ESTABLISHED:
-            case FIN_WAIT_1:
-            case FIN_WAIT_2:
-            case CLOSING:
-            case CLOSE_WAIT:
-            case LAST_ACK:
-                return handleEstablishedConnection(sock, &header, 
+
+                else{
+                    return handleEstablishedConnection(sock, &header, 
                     payload + TCP_HEADER_SIZE, dataLen);
-                
+                }
+
+                break;
             case TIME_WAIT:
-                // Handle late packets in TIME_WAIT state
                 if(sock->timeWaitCount > 0) {
                     sock->timeWaitCount--;
                 } else {
@@ -910,9 +936,11 @@ implementation {
                 retransHeader.AdvWindow = sock->effectiveWindow;
                 retransHeader.UrgPtr = 0;
                 
+                // Retransmit without re-adding to unacked queue and without
+                // advancing the sequence (it's already accounted for)
                 sendTCPPacket(sock, &retransHeader, 
                             unackedQueue[j].data, unackedQueue[j].length, 
-                            TRUE, unackedQueue[j].isSYN, unackedQueue[j].isFIN);
+                            FALSE, unackedQueue[j].isSYN, unackedQueue[j].isFIN);
                 
                 // Reset timeout with exponential backoff
                 unackedQueue[j].timeout = 2000; // Reset to 2 seconds
