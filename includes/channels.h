@@ -16,6 +16,7 @@ char IP_CHANNEL[] = "IP";
 
 // Project 3
 char TRANSPORT_CHANNEL[]="transport";
+char PROJECT3TGEN_CHANNEL[]="Project3TGen";
 
 // Personal Debuggin Channels for some of the additional models implemented.
 char HASHMAP_CHANNEL[]="hashmap";

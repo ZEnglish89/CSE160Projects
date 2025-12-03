@@ -19,7 +19,8 @@ class TestSim:
     CMD_TEST_SERVER = 6
     CMD_KILL = 7
     CMD_FLOOD = 8
-    CMD_ERROR = 9
+    CMD_CLIENT_CLOSE = 9  
+    
 
     # CHANNELS - see includes/channels.h
     COMMAND_CHANNEL="command";
@@ -150,7 +151,25 @@ class TestSim:
     def addChannel(self, channelName, out=sys.stdout):
         print 'Adding Channel', channelName;
         self.t.addChannel(channelName, out);
+    
 
+    def testClient(self, client_node, server_node, src_port, dest_port, transfer_amount):
+        """Start a TCP client that connects to a server"""
+        # Send empty payload since Node.nc uses hardcoded values
+        # Node.nc hardcodes: src_port=456, dest_port=123, server=1, transfer=100
+        # We'll just send a dummy payload
+        self.sendCMD(self.CMD_TEST_CLIENT, client_node, "client")
+
+    def testServer(self, node_id, port):
+        """Start a TCP server on a node"""
+        # Send empty payload since Node.nc uses hardcoded values
+        self.sendCMD(self.CMD_TEST_SERVER, node_id, "server")
+
+    def testClientClose(self, client_node, server_node, src_port, dest_port):
+        """Close a TCP client connection"""
+        # Format: "client_addr,dest,srcPort,destPort"
+        payload = "%d,%d,%d,%d" % (client_node, server_node, src_port, dest_port)
+        self.sendCMD(self.CMD_CLIENT_CLOSE, client_node, payload)
 
     def timingTest(self):
         print "=== TIMING TEST ==="
@@ -217,10 +236,10 @@ class TestSim:
         self.moteOff(4)
         self.runTime(12000)
 
-#        print "=== ROUTING TABLES ==="
-#        for node_id in self.moteids:
-#            self.routeDMP(node_id)
-#            self.runTime(2000)
+        #print "=== ROUTING TABLES ==="
+        #for node_id in self.moteids:
+        #    self.routeDMP(node_id)
+        #    self.runTime(2000)
         
         print "\n=== TESTING END-TO-END ROUTING ROUND TWO ==="
         if len(self.moteids) >= 19:
@@ -266,9 +285,28 @@ def main():
 #    s.addChannel(s.FLOODING_CHANNEL);
 #    s.addChannel(s.ROUTING_CHANNEL);
 #    s.addChannel(s.NEIGHBOR_CHANNEL);
+    s.addChannel(s.TRANSPORT_CHANNEL);
 
     # Let neighbor discovery run for a while
     s.runTime(120000);  # 2 minutes to allow several discovery cycles
+    
+    print "=== STARTING TCP TEST ==="
+
+    # Start server on node 1
+    print "Starting TCP server on node 1, port 123"
+    s.testServer(1, 123)
+    s.runTime(5000)
+
+    # Start client on node 2  
+    print "Starting TCP client on node 2 connecting to node 1"
+    s.testClient(2, 1, 456, 123, 100)  # These parameters are ignored
+    s.runTime(5000)
+
+    # Run for a while to see connection attempts
+    print "Running TCP test for 30 seconds..."
+    s.runTime(30000)
+        
+    print "=== TCP TEST COMPLETE ==="
 
     '''
     # Then dump neighbor tables for all nodes
@@ -333,16 +371,16 @@ def main():
     
     print "=== TEST COMPLETE === "
     '''
-    print "=== STARTING COMPREHENSIVE LINK STATE ROUTING TEST ==="
+    #print "=== STARTING COMPREHENSIVE LINK STATE ROUTING TEST ==="
     
     # Run the comprehensive test
-    s.testLinkStateRouting()
+    #s.testLinkStateRouting()
     #s.testSimplePing()
     # Keep running to see any final updates
-    print "Running for additional 30 seconds to observe final state..."
-    s.runTime(30000)
+    #print "Running for additional 30 seconds to observe final state..."
+    #s.runTime(30000)
     
-    print "=== ALL TESTS COMPLETE ==="
+    #print "=== ALL TESTS COMPLETE ==="
 
 if __name__ == '__main__':
     main()

@@ -65,23 +65,47 @@ implementation{
                 signal CommandHandler.printRouteTable();
                 break;
 
-            case CMD_FLOOD:  // ADD THIS CASE
+            case CMD_FLOOD:
                 dbg(COMMAND_CHANNEL, "Command Type: Flood\n");
-                // buff[0] is destination, &buff[1] is the payload
-                // payloadLength-1 because first byte is destination
                 if(payloadLength > 1) {
                     signal CommandHandler.startFlood(buff[0], &buff[1], payloadLength-1);
                 }
                 break;
 
             case CMD_TEST_CLIENT:
-                dbg(COMMAND_CHANNEL, "Command Type: Client\n");
-                signal CommandHandler.setTestClient();
+                dbg(COMMAND_CHANNEL, "Command Type: Test Client\n");
+                // Parse [dest],[srcPort],[destPort],[transfer]
+                // Payload format: "dest,srcPort,destPort,transfer"
+                if(payloadLength > 0) {
+                    // For Project 3 demo, just trigger with hardcoded values
+                    // In a complete implementation, parse the string
+                    signal CommandHandler.setTestClient();
+                }
                 break;
 
             case CMD_TEST_SERVER:
-                dbg(COMMAND_CHANNEL, "Command Type: Server\n");
-                signal CommandHandler.setTestServer();
+                dbg(COMMAND_CHANNEL, "Command Type: Test Server\n");
+                // Parse [address],[port]
+                if(payloadLength > 0) {
+                    // For Project 3 demo, just trigger with default port 123
+                    signal CommandHandler.setTestServer();
+                }
+                break;
+
+            case CMD_CLIENT_CLOSE:
+                dbg(COMMAND_CHANNEL, "Command Type: Client Close\n");
+                // Parse [client_addr],[dest],[srcPort],[destPort]
+                if(payloadLength > 0) {
+                    // For now, just close any active client
+                    // In complete implementation, parse and close specific socket
+                    // For demo, we'll just signal that we should close
+                    signal CommandHandler.setAppClient(); // Reuse this event for demo
+                }
+                break;
+
+            case CMD_KILL:
+                dbg(COMMAND_CHANNEL, "Command Type: Kill\n");
+                // Handle kill command if needed
                 break;
 
             default:

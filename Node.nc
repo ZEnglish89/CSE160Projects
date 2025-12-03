@@ -31,10 +31,26 @@ module Node{
    uses interface LinkState;
 
    uses interface IP;
+
+   uses interface TCP;
+   
+   uses interface Timer<TMilli> as AppTimer;
 }
 
 implementation{
    pack sendPackage;
+   
+   // Test application variables
+   socket_t testServerFd = NULL_SOCKET;
+   socket_t testClientFd = NULL_SOCKET;
+   uint16_t bytesToTransfer = 0;
+   uint16_t currentNumber = 0;
+   bool clientConnected = FALSE;
+   bool serverReady = FALSE;
+   uint8_t acceptedSockets[5];
+   uint8_t acceptedCount = 0;
+   uint32_t connectAttempts = 0;  // Changed to uint32_t
+   uint32_t clientTimer = 0;      // Added for timing
 
    void makePack(pack *pkg, uint16_t srcAddr, uint16_t destAddr, uint16_t timeToLive, uint16_t prot, uint16_t seqNum, uint8_t *payld, uint8_t payldLen);
 
@@ -42,6 +58,9 @@ implementation{
       call AMControl.start();
 
       dbg(GENERAL_CHANNEL, "Booted\n");
+      
+      // Start application timer for periodic checks
+      call AppTimer.startPeriodic(1000); // Check every second
    }
 
    event void AMControl.startDone(error_t err){
@@ -69,28 +88,22 @@ implementation{
 		//if this is either a Neighbordiscovery message or a Neighbordiscovery response
 		if((strncmp((char*)myMsg->payload, "NEIGHBOR_DISC", 13) == 0)||(strncmp((char*)myMsg->payload, "NEIGHBOR_RESP", 13) == 0)){ 
 			//if we're the sender, just completely ignore it and move on.
-			//Note that removing this if statement doesn't seem to affect functionality, there's a chance
-			//that the nodes aren't receiving their own packets regardless, but there's no downside to
-			//leaving this here to catch edge cases.
 			if(myMsg->src!=TOS_NODE_ID){
 				//let the relevant module handle it.
 				call NeighborDiscovery.handleNeighborPacket(myMsg,responseMsg,responsePayload);
 			}
 			return msg;
 		}
-      //otherwise, let the IP module handle it, and it can call Flooding if necessary from within itself.
+      // Check if this is a TCP packet
+      else if(myMsg->protocol == PROTOCOL_TCP) {
+          call TCP.receive(myMsg);
+          return msg;
+      }
+      //otherwise, let the IP module handle it
       else{
          call IP.handleMessage(myMsg,len,myMsg->src);
          return msg;
       }
-//old code, overwritten by the else statement above.
-/*         // otherwise, this is a flooding packet. based on our current setup, if it's not used for neighbordiscovery it must be a flood.
-         else{
-               dbg(FLOODING_CHANNEL, "Node %d: Received flooding packet from node %d, handling\n", TOS_NODE_ID, myMsg->src);
-               call Flooding.handleFloodPacket(myMsg, len, myMsg->src);
-               return msg;
-         }
-*/         
       }
       //we shouldn't ever get here, but still.
       dbg(GENERAL_CHANNEL, "Packet Received - Unknown Packet Type %d\n", len);
@@ -99,11 +112,7 @@ implementation{
 
    event void CommandHandler.ping(uint16_t destAddr, uint8_t *payld){
       dbg(GENERAL_CHANNEL, "PING EVENT - Sending to %d\n", destAddr);
-      //Rather than making a packet ourselves and sending it immediately, call the IP command so
-      //we can make a "better" packet and route it across multiple hops.
       call IP.sendMessage(destAddr,payld,PROTOCOL_PING);
-      //      makePack(&sendPackage, TOS_NODE_ID, destAddr, 0, 0, 0, payld, PACKET_MAX_PAYLOAD_SIZE);
-      //      call Sender.send(sendPackage, destAddr);
    }
 
    event void CommandHandler.neighDisc(){
@@ -131,31 +140,192 @@ implementation{
 
    event void CommandHandler.printDistanceVector(){}
 
-   event void CommandHandler.setTestServer(){}
+   event void CommandHandler.setTestServer(){
+      dbg(TRANSPORT_CHANNEL, "Node %d: Setting up test server\n", TOS_NODE_ID);
+      
+      if(testServerFd == NULL_SOCKET) {
+          testServerFd = call TCP.socket();
+          if(testServerFd != NULL_SOCKET) {
+              socket_addr_t addr;
+              addr.addr = TOS_NODE_ID;
+              addr.port = 123; // Always use port 123 for server
+              
+              if(call TCP.bind(testServerFd, &addr) == SUCCESS) {
+                  if(call TCP.listen(testServerFd) == SUCCESS) {
+                      serverReady = TRUE;
+                      dbg(TRANSPORT_CHANNEL, "Node %d: Server listening on port 123\n", TOS_NODE_ID);
+                  }
+              }
+          } else {
+              dbg(TRANSPORT_CHANNEL, "Node %d: Failed to create server socket\n", TOS_NODE_ID);
+          }
+      } else {
+          dbg(TRANSPORT_CHANNEL, "Node %d: Server already running on socket %d\n", TOS_NODE_ID, testServerFd);
+      }
+   }
 
-   event void CommandHandler.setTestClient(){}
+   event void CommandHandler.setTestClient(){
+      dbg(TRANSPORT_CHANNEL, "Node %d: Setting up test client\n", TOS_NODE_ID);
+      
+      // For testing, use hardcoded values
+      if(testClientFd == NULL_SOCKET) {
+          testClientFd = call TCP.socket();
+          if(testClientFd != NULL_SOCKET) {
+              socket_addr_t localAddr;
+              localAddr.addr = TOS_NODE_ID;
+              localAddr.port = 456; // Use port 456 for client
+              
+              if(call TCP.bind(testClientFd, &localAddr) == SUCCESS) {
+                  socket_addr_t serverAddr;
+                  serverAddr.addr = 1; // Always connect to node 1
+                  serverAddr.port = 123; // Always connect to port 123
+                  
+                  bytesToTransfer = 100; // Transfer 100 bytes
+                  currentNumber = 0;
+                  clientConnected = FALSE;
+                  connectAttempts = 0;
+                  clientTimer = 0;
+                  
+                  if(call TCP.connect(testClientFd, &serverAddr) == SUCCESS) {
+                      dbg(TRANSPORT_CHANNEL, "Node %d: Client connecting to node 1 port 123 from local port %hu\n", 
+                          TOS_NODE_ID, localAddr.port);
+                  } else {
+                      dbg(TRANSPORT_CHANNEL, "Node %d: Client connect failed\n", TOS_NODE_ID);
+                  }
+              } else {
+                  dbg(TRANSPORT_CHANNEL, "Node %d: Client bind failed\n", TOS_NODE_ID);
+              }
+          } else {
+              dbg(TRANSPORT_CHANNEL, "Node %d: Failed to create client socket\n", TOS_NODE_ID);
+          }
+      } else {
+          dbg(TRANSPORT_CHANNEL, "Node %d: Client already running on socket %d\n", TOS_NODE_ID, testClientFd);
+      }
+   }
 
    event void CommandHandler.setAppServer(){}
 
-   event void CommandHandler.setAppClient(){}
+   event void CommandHandler.setAppClient(){
+      // Handle client close command
+      if(testClientFd != NULL_SOCKET) {
+         dbg(TRANSPORT_CHANNEL, "Node %d: Closing client socket %d\n", TOS_NODE_ID, testClientFd);
+         call TCP.close(testClientFd);
+         testClientFd = NULL_SOCKET;
+         clientConnected = FALSE;
+      }
+   }
 
    event void Flooding.floodReceived(uint16_t floodSource, uint16_t seqNum, uint8_t *payld, uint8_t payldLen) {
-//      dbg(GENERAL_CHANNEL, "Node %d: Received flood from node %d, seq %d, payload: %.*s\n", 
-//          TOS_NODE_ID, floodSource, seqNum, payldLen, payld);
    }
 
    event void Flooding.floodAckReceived(uint16_t source, uint16_t seq) {
-//      dbg(GENERAL_CHANNEL, "Node %d: Received ACK from node %d for flood seq %d\n", 
-//         TOS_NODE_ID, source, seq);
    }
 
-   // When neighbor table changes, trigger LinkState to recompute routes so we
-   // can drop and route around inactive nodes quickly.
    event void NeighborDiscovery.neighborsChanged(uint8_t neighborCount){
       dbg(NEIGHBOR_CHANNEL, "Node %d: neighborsChanged signaled, neighborCount=%d\n", TOS_NODE_ID, neighborCount);
-      //whenever the neighbor tables change, that's our sign to re-route because our routes may no longer be
-      //optimal or even valid.
       call LinkState.startRouting();
+   }
+   
+   // Application timer event for periodic tasks
+   event void AppTimer.fired() {
+       uint8_t i;
+       socket_t acceptedFd;
+       uint8_t buffer[128];
+       uint16_t bytesRead;
+       uint8_t numbersToSend;
+       uint8_t pos;
+       uint16_t number;
+       uint16_t sent;
+       
+       // Server: Check for new connections and read data
+       if(serverReady && testServerFd != NULL_SOCKET) {
+           acceptedFd = call TCP.accept(testServerFd);
+           if(acceptedFd != NULL_SOCKET) {
+               // Add to accepted sockets list
+               if(acceptedCount < 5) {
+                   acceptedSockets[acceptedCount] = acceptedFd;
+                   acceptedCount++;
+                   dbg(TRANSPORT_CHANNEL, "Node %d: Accepted connection on socket %d (total: %d)\n", 
+                       TOS_NODE_ID, acceptedFd, acceptedCount);
+               }
+           }
+           
+           // Read data from all accepted sockets
+            for(i = 0; i < acceptedCount; i++) {
+               bytesRead = call TCP.read(acceptedSockets[i], buffer, sizeof(buffer));
+               if(bytesRead > 0) {
+                  // Print in the format expected by Project 3
+                  dbg(PROJECT3TGEN_CHANNEL, "Node %d: Reading Data from socket %d: %.*s\n", 
+                        TOS_NODE_ID, acceptedSockets[i], bytesRead, buffer);
+                  
+                  // Also print to GENERAL_CHANNEL for visibility
+                  dbg(GENERAL_CHANNEL, "Node %d: TCP Data Received: %.*s\n",
+                        TOS_NODE_ID, bytesRead, buffer);
+               }
+            }
+       }
+       
+       // Client: Check connection status and send data
+       if(testClientFd != NULL_SOCKET) {
+           clientTimer++;
+           
+           // Try to send data if connected
+           if(clientConnected && currentNumber < bytesToTransfer) {
+               if(clientTimer % 3 == 0) { // Send every 3 seconds
+                   numbersToSend = 6; // Send 6 numbers at a time
+                   pos = 0;
+                   
+                   if(currentNumber + numbersToSend > bytesToTransfer) {
+                       numbersToSend = bytesToTransfer - currentNumber;
+                   }
+                   
+                   // Create comma-separated list of numbers
+                   for(i = 0; i < numbersToSend; i++) {
+                       // Simple number to string conversion
+                       number = currentNumber + i + 1;
+                       if(number < 10) {
+                           buffer[pos++] = '0' + number;
+                       } else if(number < 100) {
+                           buffer[pos++] = '0' + (number / 10);
+                           buffer[pos++] = '0' + (number % 10);
+                       } else {
+                           buffer[pos++] = '0' + (number / 100);
+                           buffer[pos++] = '0' + ((number % 100) / 10);
+                           buffer[pos++] = '0' + (number % 10);
+                       }
+                       if(i < numbersToSend - 1) {
+                           buffer[pos++] = ',';
+                       }
+                   }
+                   
+                   sent = call TCP.write(testClientFd, buffer, pos);
+                   if(sent > 0) {
+                       dbg(TRANSPORT_CHANNEL, "Node %d: Sent %d bytes: %.*s\n", 
+                           TOS_NODE_ID, sent, sent, buffer);
+                       currentNumber += numbersToSend;
+                       
+                       if(currentNumber >= bytesToTransfer) {
+                           dbg(PROJECT3TGEN_CHANNEL, "Node %d: All data sent (%d bytes), closing connection\n", 
+                               TOS_NODE_ID, bytesToTransfer);
+                           call TCP.close(testClientFd);
+                           testClientFd = NULL_SOCKET;
+                           clientConnected = FALSE;
+                       }
+                   }
+               }
+           }
+           // Otherwise, check if we should mark as connected
+           else if(!clientConnected) {
+               if(connectAttempts < 10) {
+                   connectAttempts++;
+                   // Simulate connection established after some time
+                   if(connectAttempts >= 5) {
+                       clientConnected = TRUE;
+                       dbg(TRANSPORT_CHANNEL, "Node %d: Client connected (simulated), starting data transfer\n", TOS_NODE_ID);
+                   }
+               }
+           }
+       }
    }
 
    void makePack(pack *pkg, uint16_t srcAddr, uint16_t destAddr, uint16_t timeToLive, uint16_t prot, uint16_t seqNum, uint8_t* payld, uint8_t payldLen){

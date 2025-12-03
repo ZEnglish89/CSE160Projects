@@ -19,7 +19,8 @@ enum{
 	CMD_TEST_SERVER=6,
 	CMD_KILL=7,
 	CMD_FLOOD = 8,
-	CMD_ERROR=9
+	CMD_CLIENT_CLOSE = 9,
+	CMD_ERROR=10
 };
 
 enum{

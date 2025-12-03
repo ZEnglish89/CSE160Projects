@@ -43,4 +43,10 @@ implementation {
 
     components IPC;
     Node.IP -> IPC;
+
+    components TCPC;
+    Node.TCP -> TCPC;
+    
+    components new TimerMilliC() as AppTimer;
+    Node.AppTimer -> AppTimer;
 }
