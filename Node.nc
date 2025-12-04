@@ -145,13 +145,16 @@ implementation{
    event void CommandHandler.setTestServer(){
       dbg(TRANSPORT_CHANNEL, "Node %d: Setting up test server\n", TOS_NODE_ID);
       
+      //if the given id isn't already in use, we make a new socket.
       if(testServerFd == NULL_SOCKET) {
           testServerFd = call TCP.socket();
           if(testServerFd != NULL_SOCKET) {
               socket_addr_t addr;
               addr.addr = TOS_NODE_ID;
-              addr.port = 123; // Always use port 123 for server
+              addr.port = 123; // Always use port 123 for server, well-known port.
               
+              //these will pretty much always return success but it's a useful formality.
+              //bind the Server to the port, and have it listen for incoming connections.
               if(call TCP.bind(testServerFd, &addr) == SUCCESS) {
                   if(call TCP.listen(testServerFd) == SUCCESS) {
                       serverReady = TRUE;
@@ -169,7 +172,7 @@ implementation{
    event void CommandHandler.setTestClient(){
       dbg(TRANSPORT_CHANNEL, "Node %d: Setting up test client\n", TOS_NODE_ID);
       
-      // For testing, use hardcoded values
+      // we're using hardcoded values for right now.
       if(testClientFd == NULL_SOCKET) {
           testClientFd = call TCP.socket();
           if(testClientFd != NULL_SOCKET) {
@@ -179,15 +182,16 @@ implementation{
               
               if(call TCP.bind(testClientFd, &localAddr) == SUCCESS) {
                   socket_addr_t serverAddr;
-                  serverAddr.addr = 1; // Always connect to node 1
-                  serverAddr.port = 123; // Always connect to port 123
+                  serverAddr.addr = 1; // Always connect to node 1 as the server.
+                  serverAddr.port = 123; // Always connect to port 123, well-known port.
                   
-                  bytesToTransfer = 20; // Transfer 100 bytes
+                  bytesToTransfer = 20;
                   currentNumber = 0;
                   clientConnected = FALSE;
                   connectAttempts = 0;
                   clientTimer = 0;
                   
+                  //initiated a connection with our new socket.
                   if(call TCP.connect(testClientFd, &serverAddr) == SUCCESS) {
                       dbg(TRANSPORT_CHANNEL, "Node %d: Client connecting to node 1 port 123 from local port %hu\n", 
                           TOS_NODE_ID, localAddr.port);
@@ -208,7 +212,7 @@ implementation{
    event void CommandHandler.setAppServer(){}
 
    event void CommandHandler.setAppClient(){
-      // Handle client close command
+      // if the client's socket is active, close it and mark it as such.
       if(testClientFd != NULL_SOCKET) {
          dbg(TRANSPORT_CHANNEL, "Node %d: Closing client socket %d\n", TOS_NODE_ID, testClientFd);
          call TCP.close(testClientFd);
@@ -249,6 +253,7 @@ implementation{
             // Only try to accept once
             if(!connectionAlreadyAccepted) {
                 acceptedFd = call TCP.accept(testServerFd);
+                //if the connection was accepted and the socket is good, log that socket.
                 if(acceptedFd != NULL_SOCKET) {
                     acceptedSockets[0] = acceptedFd;
                     acceptedCount = 1;
@@ -264,16 +269,16 @@ implementation{
             // Only read from sockets that are ESTABLISHED
             if(acceptedCount > 0) {
                 for(i = 0; i < acceptedCount; i++) {
-                    // Check if we should even try to read
-                    // (Skip if we know connection might be closing)
+                    //this could hypothetically let us detect inactive sockets.
                     static uint8_t consecutiveEmptyReads = 0;
                     
                     bytesRead = call TCP.read(acceptedSockets[i], buffer, sizeof(buffer));
                     
                     if(bytesRead > 0) {
+                        //if we read something, we don't have an empty read.
                         consecutiveEmptyReads = 0;  // Reset counter
                         
-                        // Print in the format expected by Project 3
+                        // print what we read, byte by byte.
                         dbg(TRANSPORT_CHANNEL, "Node %d: Reading Data length %d from socket %d:\n", 
                             TOS_NODE_ID, bytesRead, acceptedSockets[i]);
 
@@ -293,6 +298,7 @@ implementation{
                             }
                         }
                         
+                        //if we're confident that we've got all the data, we can close up shop.
                         if(foundEnd) {
                             dbg(PROJECT3TGEN_CHANNEL, "Node %d: Complete data set received, closing connection\n",
                                 TOS_NODE_ID);
@@ -309,7 +315,8 @@ implementation{
                     else {
                         consecutiveEmptyReads++;
                         
-                        // If we've had many empty reads, the connection might be closing
+                        // If we've had many empty reads, the connection might be closing.
+                        //we don't do anything with it here, but this does have a use case.
                         if(consecutiveEmptyReads > 10) {
 //                            dbg(TRANSPORT_CHANNEL, "Node %d: Many empty reads on socket %d\n",
 //                                TOS_NODE_ID, acceptedSockets[i]);
@@ -326,7 +333,8 @@ implementation{
             
             // Connection timeout - check actual socket state
             if(!clientConnected) {
-                // Check if socket has actually reached ESTABLISHED state
+                // Check if socket has actually reached ESTABLISHED state, we can't just assume
+                //that connect() worked if we have noise present.
                 uint8_t sockState = call TCP.getState(testClientFd);
                 
                 if(sockState == ESTABLISHED) {
@@ -344,13 +352,15 @@ implementation{
                     connectAttempts = 0;
                     return;
                 } else {
-                    // Still waiting for connection (SYN_SENT state)
+                    //if it's not established or closed, it means that it's attempting to open but hasn't been successful.
                     connectAttempts++;
                     
+                    //if we check the state several times and it still hasn't converged somewhere, we can timeout and try
+                    //to connect again.
                     if(connectAttempts > 5) {
                         dbg(PROJECT3TGEN_CHANNEL, "Node %d: Connection timeout after %d attempts, retrying\n",
                             TOS_NODE_ID, connectAttempts);
-                        // Close and reopen socket for retry
+                        // Close socket, mark it as closed.
                         call TCP.close(testClientFd);
                         testClientFd = NULL_SOCKET;
                         clientConnected = FALSE;
@@ -382,8 +392,8 @@ implementation{
             
             // Send data if connected
             if(clientConnected && currentNumber < bytesToTransfer) {
-                // Send immediately without waiting 3 seconds
-                numbersToSend = 20; // Send all remaining at once
+                // Send immediately
+                numbersToSend = 20;
                 pos = 0;
                 
                 if(currentNumber + numbersToSend > bytesToTransfer) {
@@ -413,6 +423,7 @@ implementation{
                     pos += 15;
                 }
                 
+                //then write to the outgoing buffer
                 sent = call TCP.write(testClientFd, buffer, pos);
                 if(sent > 0) {
                     dbg(PROJECT3TGEN_CHANNEL, "Node %d: Sent %d bytes on socket %d\n",
@@ -433,7 +444,7 @@ implementation{
                             currentNumber = 0;
                         }
                     }
-                    */
+                    */ //we DONT want to do that because we still have to hang around and wait for potential retransmissions.
                 }
             }
         }

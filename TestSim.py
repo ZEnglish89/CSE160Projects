@@ -339,8 +339,8 @@ def main():
     s.loadTopo("long_line.topo");
     #s.loadTopo("2node.topo");
 
-#    s.loadNoise("no_noise.txt");
-    s.loadNoise("some_noise.txt")
+    s.loadNoise("no_noise.txt");
+#    s.loadNoise("some_noise.txt")
     s.bootAll();
 #    s.addChannel(s.COMMAND_CHANNEL);
 #    s.addChannel(s.GENERAL_CHANNEL);
