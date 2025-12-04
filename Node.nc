@@ -94,11 +94,12 @@ implementation{
 			}
 			return msg;
 		}
-      // Check if this is a TCP packet
+/*      // Check if this is a TCP packet
+//actually, we don't want to do this because IP needs to handle multi-hop TCP connections. 
         else if(myMsg->protocol == PROTOCOL_TCP) {
             call TCP.receive(myMsg, len);
             return msg;
-        }
+        }*/
       //otherwise, let the IP module handle it
       else{
          call IP.handleMessage(myMsg,len,myMsg->src);
@@ -307,17 +308,12 @@ implementation{
                     else {
                         consecutiveEmptyReads++;
                         
-/*                        // If we've had many empty reads, the connection might be closing
+                        // If we've had many empty reads, the connection might be closing
                         if(consecutiveEmptyReads > 10) {
-                            dbg(TRANSPORT_CHANNEL, "Node %d: Many empty reads on socket %d, checking connection state\n",
-                                TOS_NODE_ID, acceptedSockets[i]);
-                            // Don't spam debug - only log occasionally
-                            if(consecutiveEmptyReads % 30 == 0) {  // Every 30 seconds
-                                dbg(TRANSPORT_CHANNEL, "Node %d: Still reading empty on socket %d (count: %d)\n",
-                                    TOS_NODE_ID, acceptedSockets[i], consecutiveEmptyReads);
-                            }
+//                            dbg(TRANSPORT_CHANNEL, "Node %d: Many empty reads on socket %d\n",
+//                                TOS_NODE_ID, acceptedSockets[i]);
                         }
-                        */
+                        
                     }
                 }
             }
@@ -390,7 +386,7 @@ implementation{
                     
                     currentNumber += numbersToSend;
                     
-                    // Close immediately after sending all data
+/*                    // Close immediately after sending all data
                     if(currentNumber >= bytesToTransfer) {
                         dbg(PROJECT3TGEN_CHANNEL, "Node %d: All data sent, initiating graceful close\n", 
                             TOS_NODE_ID);
@@ -403,6 +399,7 @@ implementation{
                             currentNumber = 0;
                         }
                     }
+                    */
                 }
             }
         }

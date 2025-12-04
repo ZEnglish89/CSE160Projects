@@ -918,12 +918,11 @@ implementation {
         return FAIL;
     }
 
-    command error_t TCP.receive(pack* package, uint8_t pktLen) {
+    command error_t TCP.receive(pack* package, uint8_t pktLen, uint16_t srcAddr) {
         TCPHeader header;
         uint16_t dataLen;
         socket_store_t* sock;
         uint8_t* payload;
-        uint16_t srcAddr;
         TCPHeader ackHeader;
         uint8_t idx;
         uint16_t totalSegmentLen;
@@ -942,7 +941,6 @@ implementation {
         }
         
         payload = (uint8_t*)package->payload + IP_HEADER_SIZE;
-        srcAddr = package->src;
         
         // Manual copy of TCP header
         header.SrcPort = (payload[0] << 8) | payload[1];
@@ -1199,7 +1197,7 @@ implementation {
         
         // Restart timer if there are still unacked segments
         if(unackedCount > 0) {
-            call RetransmitTimer.startOneShot(100);
+            call RetransmitTimer.startOneShot(1000);
             timerRunning = TRUE;
             dbg(TRANSPORT_CHANNEL, "Node %d: Retransmit timer restarted, %d segments pending\n",
                 TOS_NODE_ID, unackedCount);

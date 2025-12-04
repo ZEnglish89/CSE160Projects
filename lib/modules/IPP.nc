@@ -8,6 +8,7 @@ module IPP{
     uses interface SimpleSend;
     uses interface Flooding;
     uses interface LinkState;
+    uses interface TCP;
 }
 
 implementation{
@@ -87,6 +88,11 @@ implementation{
             payldLen = pktLen - IP_HEADER_SIZE;  // CALCULATE PAYLOAD LENGTH
             dbg(GENERAL_CHANNEL, "Node %d: DELIVERED PACKET! Payload: %.*s\n", 
                 TOS_NODE_ID, payldLen, &(msg->payload[IP_HEADER_SIZE]));
+            
+            //if it's a TCP packet, give it to TCP of course.
+            if(msg->protocol == PROTOCOL_TCP){
+                call TCP.receive(msg,pktLen,head.IPSrc);
+            }
             return;
         }
 

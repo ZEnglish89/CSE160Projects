@@ -19,6 +19,9 @@ implementation{
     components LinkStateC;
     IPP.LinkState -> LinkStateC;
 
+    components TCPC;
+    IPP.TCP -> TCPC;
+
 //I'm including Flooding so that if we receive a packet that should be broadcast,
 //we can flood it.
     components FloodingC;
