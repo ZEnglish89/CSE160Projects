@@ -11,5 +11,6 @@ interface TCP {
     command uint16_t read(socket_t fd, uint8_t *buff, uint16_t bufflen);
     command error_t close(socket_t fd);
     command error_t receive(pack* package, uint8_t pktLen, uint16_t srcAddr);
+    command uint8_t getState(socket_t fd);
     
 }

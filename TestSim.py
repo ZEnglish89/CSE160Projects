@@ -230,7 +230,7 @@ class TestSim:
         
         print("\n3. Starting TCP client on node 2, connecting to node 1:123")
         print("   Will send 20 bytes of data (numbers 0-19)")
-        self.testClient(9, 1, 456, 123, 20)
+        self.testClient(4, 1, 456, 123, 20)
         self.runTime(50000)
         
         print("\n4. Running test for 5 minutes to observe data transfer...")
@@ -243,7 +243,7 @@ class TestSim:
         self.runTime(300000)  # 5 minutes
         
         print("\n5. Testing graceful close...")
-        self.testClientClose(9, 1, 456, 123)
+        self.testClientClose(4, 1, 456, 123)
         self.runTime(100000)
         
         print("\n=== QUICK TEST COMPLETE ===")
@@ -339,7 +339,8 @@ def main():
     s.loadTopo("long_line.topo");
     #s.loadTopo("2node.topo");
 
-    s.loadNoise("no_noise.txt");
+#    s.loadNoise("no_noise.txt");
+    s.loadNoise("some_noise.txt")
     s.bootAll();
 #    s.addChannel(s.COMMAND_CHANNEL);
 #    s.addChannel(s.GENERAL_CHANNEL);

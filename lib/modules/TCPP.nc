@@ -918,6 +918,13 @@ implementation {
         return FAIL;
     }
 
+    command uint8_t TCP.getState(socket_t fd) {
+        if(fd >= MAX_NUM_OF_SOCKETS) {
+            return CLOSED;  // Invalid socket is considered CLOSED
+        }
+        return sockets[fd].state;
+    }
+
     command error_t TCP.receive(pack* package, uint8_t pktLen, uint16_t srcAddr) {
         TCPHeader header;
         uint16_t dataLen;

@@ -13,6 +13,7 @@
 #include "../../includes/sendInfo.h"
 #include "../../includes/channels.h"
 #include "../../includes/flooding.h"
+#include "../../includes/socket.h"
 
 module Node{
    uses interface Boot;
@@ -323,26 +324,59 @@ implementation{
         if(testClientFd != NULL_SOCKET) {
             clientTimer++;
             
-            // Connection timeout
+            // Connection timeout - check actual socket state
             if(!clientConnected) {
-                connectAttempts++;
+                // Check if socket has actually reached ESTABLISHED state
+                uint8_t sockState = call TCP.getState(testClientFd);
                 
-                if(connectAttempts > 30) {
-                    dbg(PROJECT3TGEN_CHANNEL, "Node %d: Connection timeout, closing client\n",
+                if(sockState == ESTABLISHED) {
+                    // Connection successful!
+                    clientConnected = TRUE;
+                    connectAttempts = 0;
+                    dbg(PROJECT3TGEN_CHANNEL, "Node %d: Client connection ESTABLISHED\n",
                         TOS_NODE_ID);
-                    call TCP.close(testClientFd);
+                } else if(sockState == CLOSED) {
+                    // Socket closed unexpectedly
+                    dbg(PROJECT3TGEN_CHANNEL, "Node %d: Client socket closed unexpectedly\n",
+                        TOS_NODE_ID);
                     testClientFd = NULL_SOCKET;
                     clientConnected = FALSE;
                     connectAttempts = 0;
                     return;
-                }
-                
-                // Mark as connected after reasonable time
-                if(connectAttempts >= 3) {
-                    clientConnected = TRUE;
-                    connectAttempts = 0;
-                    dbg(PROJECT3TGEN_CHANNEL, "Node %d: Client connection established\n",
-                        TOS_NODE_ID);
+                } else {
+                    // Still waiting for connection (SYN_SENT state)
+                    connectAttempts++;
+                    
+                    if(connectAttempts > 5) {
+                        dbg(PROJECT3TGEN_CHANNEL, "Node %d: Connection timeout after %d attempts, retrying\n",
+                            TOS_NODE_ID, connectAttempts);
+                        // Close and reopen socket for retry
+                        call TCP.close(testClientFd);
+                        testClientFd = NULL_SOCKET;
+                        clientConnected = FALSE;
+                        connectAttempts = 0;
+                        clientTimer = 0;
+                        
+                        // Immediately retry: create new socket and connect
+                        testClientFd = call TCP.socket();
+                        if(testClientFd != NULL_SOCKET) {
+                            socket_addr_t localAddr;
+                            localAddr.addr = TOS_NODE_ID;
+                            localAddr.port = 456; // Use port 456 for client
+                            
+                            if(call TCP.bind(testClientFd, &localAddr) == SUCCESS) {
+                                socket_addr_t serverAddr;
+                                serverAddr.addr = 1; // Always connect to node 1
+                                serverAddr.port = 123; // Always connect to port 123
+                                
+                                if(call TCP.connect(testClientFd, &serverAddr) == SUCCESS) {
+                                    dbg(TRANSPORT_CHANNEL, "Node %d: Client retrying connection to node 1 port 123\n", 
+                                        TOS_NODE_ID);
+                                }
+                            }
+                        }
+                        return;
+                    }
                 }
             }
             
