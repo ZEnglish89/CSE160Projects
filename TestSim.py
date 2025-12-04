@@ -171,6 +171,31 @@ class TestSim:
         payload = "%d,%d,%d,%d" % (client_node, server_node, src_port, dest_port)
         self.sendCMD(self.CMD_CLIENT_CLOSE, client_node, payload)
 
+    # Add to TestSim.py
+    def testProject3Requirements(self):
+        print("=== PROJECT 3 REQUIREMENTS TEST ===")
+        
+        # 1. Test server setup
+        print("1. Starting test server on node 1, port 80")
+        self.testServer(1, 80)
+        self.runTime(5000)
+        
+        # 2. Test client connection and data transfer
+        print("2. Starting test client on node 2")
+        print("   Connecting to node 1:80 from port 456")
+        print("   Transferring 100 bytes")
+        self.testClient(2, 1, 456, 80, 100)
+        self.runTime(30000)
+        
+        # 3. Test graceful close
+        print("3. Testing graceful connection close")
+        self.testClientClose(2, 1, 456, 80)
+        self.runTime(10000)
+        
+        # 4. Verify all data received in order
+        print("4. Checking data integrity")
+        # (You'll need to add logic to verify received data)
+
     def timingTest(self):
         print "=== TIMING TEST ==="
         
@@ -191,6 +216,41 @@ class TestSim:
         for node_id in self.moteids:
             self.routeDMP(node_id)
             self.runTime(500)
+
+    def quickTest(self):
+        """Quick test to verify TCP functionality"""
+        print("=== QUICK TCP TEST ===")
+        
+        print("1. Waiting 2 minutes for network initialization...")
+        self.runTime(120000)
+        
+        print("\n2. Starting TCP server on node 1, port 123")
+        self.testServer(1, 123)
+        self.runTime(5000)
+        
+        print("\n3. Starting TCP client on node 2, connecting to node 1:123")
+        print("   Will send 20 bytes of data (numbers 0-19)")
+        self.testClient(2, 1, 456, 123, 20)
+        self.runTime(5000)
+        
+        print("\n4. Running test for 5 minutes to observe data transfer...")
+        print("   Looking for:")
+        print("   - 'Debug(1): Syn Packet Arrived'")
+        print("   - 'Debug(1): Syn Ack Packet Sent'") 
+        print("   - 'Debug(1): Connection Established'")
+        print("   - 'Node X: Reading Data from socket Y'")
+        
+        self.runTime(300000)  # 5 minutes
+        
+        print("\n5. Testing graceful close...")
+        self.testClientClose(2, 1, 456, 123)
+        self.runTime(10000)
+        
+        print("\n=== QUICK TEST COMPLETE ===")
+        print("\nCheck output above for:")
+        print("TCP three-way handshake")
+        print("Data transfer")
+        print("Connection teardown")
 
     def testLinkStateRouting(self):
         print "=== TESTING LINK STATE ROUTING ==="
@@ -276,17 +336,22 @@ def main():
     s = TestSim();
     s.runTime(10);
     #s.loadTopo("example.topo");
-    s.loadTopo("long_line.topo");
+    #s.loadTopo("long_line.topo");
+    s.loadTopo("2node.topo");
 
     s.loadNoise("no_noise.txt");
     s.bootAll();
-#    s.addChannel(s.COMMAND_CHANNEL);
-#    s.addChannel(s.GENERAL_CHANNEL);
-#    s.addChannel(s.FLOODING_CHANNEL);
-#    s.addChannel(s.ROUTING_CHANNEL);
-#    s.addChannel(s.NEIGHBOR_CHANNEL);
+    s.addChannel(s.COMMAND_CHANNEL);
+    s.addChannel(s.GENERAL_CHANNEL);
+    s.addChannel(s.FLOODING_CHANNEL);
+    s.addChannel(s.ROUTING_CHANNEL);
+    s.addChannel(s.NEIGHBOR_CHANNEL);
     s.addChannel(s.TRANSPORT_CHANNEL);
 
+    s.quickTest()
+
+
+'''
     # Let neighbor discovery run for a while
     s.runTime(120000);  # 2 minutes to allow several discovery cycles
     
@@ -307,8 +372,11 @@ def main():
     s.runTime(30000)
         
     print "=== TCP TEST COMPLETE ==="
+'''
 
-    '''
+
+
+'''
     # Then dump neighbor tables for all nodes
     print "=== DUMPING NEIGHBOR TABLES ==="
     for node_id in s.moteids:

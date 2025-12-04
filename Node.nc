@@ -77,7 +77,7 @@ implementation{
 
    event void AMControl.stopDone(error_t err){}
 
-   event message_t* Receive.receive(message_t* msg, void* payload, uint8_t len) {
+    event message_t* Receive.receive(message_t* msg, void* payload, uint8_t len) {
       pack* myMsg;
       pack responseMsg;
       uint8_t responsePayload[14];
@@ -95,10 +95,10 @@ implementation{
 			return msg;
 		}
       // Check if this is a TCP packet
-      else if(myMsg->protocol == PROTOCOL_TCP) {
-          call TCP.receive(myMsg, len);
-          return msg;
-      }
+        else if(myMsg->protocol == PROTOCOL_TCP) {
+            call TCP.receive(myMsg, len);
+            return msg;
+        }
       //otherwise, let the IP module handle it
       else{
          call IP.handleMessage(myMsg,len,myMsg->src);
@@ -180,7 +180,7 @@ implementation{
                   serverAddr.addr = 1; // Always connect to node 1
                   serverAddr.port = 123; // Always connect to port 123
                   
-                  bytesToTransfer = 100; // Transfer 100 bytes
+                  bytesToTransfer = 20; // Transfer 100 bytes
                   currentNumber = 0;
                   clientConnected = FALSE;
                   connectAttempts = 0;
@@ -226,112 +226,178 @@ implementation{
       call LinkState.startRouting();
    }
    
-   // Application timer event for periodic tasks
-   event void AppTimer.fired() {
-       uint8_t i;
-       socket_t acceptedFd;
-       uint8_t buffer[128];
-       uint16_t bytesRead;
-       uint8_t numbersToSend;
-       uint8_t pos;
-       uint16_t number;
-       uint16_t sent;
-       
-       // Server: Check for new connections and read data
-       if(serverReady && testServerFd != NULL_SOCKET) {
-           acceptedFd = call TCP.accept(testServerFd);
-//           dbg(TRANSPORT_CHANNEL,"acceptedFd: %d\n",acceptedFd);
-           if(acceptedFd != NULL_SOCKET) {
-               // Add to accepted sockets list
-               if(acceptedCount < 5) {
-                   acceptedSockets[acceptedCount] = acceptedFd;
-                   acceptedCount++;
-                   dbg(TRANSPORT_CHANNEL, "Node %d: Accepted connection on socket %d (total: %d)\n", 
-                       TOS_NODE_ID, acceptedFd, acceptedCount);
-               }
-           }
-           
-/*           // Read data from all accepted sockets
-           if(TOS_NODE_ID==1){
-            dbg(TRANSPORT_CHANNEL,"Node 1 Reading from Sockets, AcceptedCount: %d",acceptedCount);
-           }
-*/
-            for(i = 0; i < acceptedCount; i++) {
-               bytesRead = call TCP.read(acceptedSockets[i], buffer, sizeof(buffer));
-               if(bytesRead > 0) {
-                  // Print in the format expected by Project 3
-                  dbg(PROJECT3TGEN_CHANNEL, "Node %d: Reading Data from socket %d: %.*s\n", 
-                        TOS_NODE_ID, acceptedSockets[i], bytesRead, buffer);
-                  
-                  // Also print to GENERAL_CHANNEL for visibility
-                  dbg(TRANSPORT_CHANNEL, "Node %d: TCP Data Received: %.*s\n",
-                        TOS_NODE_ID, bytesRead, buffer);
-               }
+    // Application timer event for periodic tasks
+    event void AppTimer.fired() {
+        uint8_t i;
+        socket_t acceptedFd;
+        uint8_t buffer[128];
+        uint16_t bytesRead;
+        uint8_t numbersToSend;
+        uint8_t pos;
+        uint16_t number;
+        uint16_t sent;
+        bool alreadyAccepted;
+        uint8_t k;
+        bool foundEnd;
+        uint8_t j;
+        static bool connectionAlreadyAccepted = FALSE;  // Track if we've accepted
+        
+        // Server: Check for new connections and read data
+        if(serverReady && testServerFd != NULL_SOCKET) {
+            // Only try to accept once
+            if(!connectionAlreadyAccepted) {
+                acceptedFd = call TCP.accept(testServerFd);
+                if(acceptedFd != NULL_SOCKET) {
+                    acceptedSockets[0] = acceptedFd;
+                    acceptedCount = 1;
+                    connectionAlreadyAccepted = TRUE;
+                    
+                    dbg(PROJECT3TGEN_CHANNEL, "Node %d: Accepted connection on socket %d\n",
+                        TOS_NODE_ID, acceptedFd);
+                    dbg(TRANSPORT_CHANNEL, "Node %d: Accepted connection on socket %d\n", 
+                        TOS_NODE_ID, acceptedFd);
+                }
             }
-       }
-       
-       // Client: Check connection status and send data
-       if(testClientFd != NULL_SOCKET) {
-           clientTimer++;
-           
-           // Try to send data if connected
-           if(clientConnected && currentNumber < bytesToTransfer) {
-               if(clientTimer % 3 == 0) { // Send every 3 seconds
-                   numbersToSend = 6; // Send 6 numbers at a time
-                   pos = 0;
-                   
-                   if(currentNumber + numbersToSend > bytesToTransfer) {
-                       numbersToSend = bytesToTransfer - currentNumber;
-                   }
-                   
-                   // Create comma-separated list of numbers
-                   for(i = 0; i < numbersToSend; i++) {
-                       // Simple number to string conversion
-                       number = currentNumber + i + 1;
-                       if(number < 10) {
-                           buffer[pos++] = '0' + number;
-                       } else if(number < 100) {
-                           buffer[pos++] = '0' + (number / 10);
-                           buffer[pos++] = '0' + (number % 10);
-                       } else {
-                           buffer[pos++] = '0' + (number / 100);
-                           buffer[pos++] = '0' + ((number % 100) / 10);
-                           buffer[pos++] = '0' + (number % 10);
-                       }
-                       if(i < numbersToSend - 1) {
-                           buffer[pos++] = ',';
-                       }
-                   }
-                   
-                   sent = call TCP.write(testClientFd, buffer, pos);
-                   if(sent > 0) {
-                       dbg(TRANSPORT_CHANNEL, "Node %d: Sent %d bytes: %.*s\n", 
-                           TOS_NODE_ID, sent, sent, buffer);
-                       currentNumber += numbersToSend;
-                       
-                       if(currentNumber >= bytesToTransfer) {
-                           dbg(PROJECT3TGEN_CHANNEL, "Node %d: All data sent (%d bytes), closing connection\n", 
-                               TOS_NODE_ID, bytesToTransfer);
-                           call TCP.close(testClientFd);
-                           testClientFd = NULL_SOCKET;
-                           clientConnected = FALSE;
-                       }
-                   }
-               }
-           }
-           // Otherwise, check if we should mark as connected
-           else if(!clientConnected) {
-               if(connectAttempts < 10) {
-                   connectAttempts++;
-                   // Simulate connection established after some time
-                   if(connectAttempts >= 5) {
-                       clientConnected = TRUE;
-                       dbg(TRANSPORT_CHANNEL, "Node %d: Client connected (simulated), starting data transfer\n", TOS_NODE_ID);
-                   }
-               }
-           }
-       }
-   }
+            
+            // Only read from sockets that are ESTABLISHED
+            if(acceptedCount > 0) {
+                for(i = 0; i < acceptedCount; i++) {
+                    // Check if we should even try to read
+                    // (Skip if we know connection might be closing)
+                    static uint8_t consecutiveEmptyReads = 0;
+                    
+                    bytesRead = call TCP.read(acceptedSockets[i], buffer, sizeof(buffer));
+                    
+                    if(bytesRead > 0) {
+                        consecutiveEmptyReads = 0;  // Reset counter
+                        
+                        // Print in the format expected by Project 3
+                        dbg(PROJECT3TGEN_CHANNEL, "Node %d: Reading Data from socket %d: %.*s\n", 
+                            TOS_NODE_ID, acceptedSockets[i], bytesRead, buffer);
+                        
+                        // Check for complete data set
+                        foundEnd = FALSE;
+                        if(bytesRead >= 15) {
+                            for(j = 0; j <= bytesRead - 15; j++) {
+                                if(memcmp(buffer + j, "END_OF_TRANSFER", 15) == 0) {
+                                    foundEnd = TRUE;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        if(foundEnd) {
+                            dbg(PROJECT3TGEN_CHANNEL, "Node %d: Complete data set received, closing connection\n",
+                                TOS_NODE_ID);
+                            call TCP.close(acceptedSockets[i]);
+                            // Clear the socket
+                            acceptedSockets[i] = NULL_SOCKET;
+                            acceptedCount = 0;
+                            connectionAlreadyAccepted = FALSE;
+                            break;
+                        }
+                    } else {
+                        consecutiveEmptyReads++;
+                        
+                        // If we've had many empty reads, the connection might be closing
+                        if(consecutiveEmptyReads > 10) {
+                            dbg(TRANSPORT_CHANNEL, "Node %d: Many empty reads on socket %d, checking connection state\n",
+                                TOS_NODE_ID, acceptedSockets[i]);
+                            // Don't spam debug - only log occasionally
+                            if(consecutiveEmptyReads % 30 == 0) {  // Every 30 seconds
+                                dbg(TRANSPORT_CHANNEL, "Node %d: Still reading empty on socket %d (count: %d)\n",
+                                    TOS_NODE_ID, acceptedSockets[i], consecutiveEmptyReads);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Client: Check connection status and send data
+        if(testClientFd != NULL_SOCKET) {
+            clientTimer++;
+            
+            // Connection timeout
+            if(!clientConnected) {
+                connectAttempts++;
+                
+                if(connectAttempts > 30) {
+                    dbg(PROJECT3TGEN_CHANNEL, "Node %d: Connection timeout, closing client\n",
+                        TOS_NODE_ID);
+                    call TCP.close(testClientFd);
+                    testClientFd = NULL_SOCKET;
+                    clientConnected = FALSE;
+                    connectAttempts = 0;
+                    return;
+                }
+                
+                // Mark as connected after reasonable time
+                if(connectAttempts >= 3) {
+                    clientConnected = TRUE;
+                    connectAttempts = 0;
+                    dbg(PROJECT3TGEN_CHANNEL, "Node %d: Client connection established\n",
+                        TOS_NODE_ID);
+                }
+            }
+            
+            // Send data if connected
+            if(clientConnected && currentNumber < bytesToTransfer) {
+                // Send immediately without waiting 3 seconds
+                numbersToSend = 20; // Send all remaining at once
+                pos = 0;
+                
+                if(currentNumber + numbersToSend > bytesToTransfer) {
+                    numbersToSend = bytesToTransfer - currentNumber;
+                }
+                
+                // Create comma-separated list of numbers
+                for(i = 0; i < numbersToSend; i++) {
+                    number = currentNumber + i;
+                    
+                    // Simple number
+                    if(number < 10) {
+                        buffer[pos++] = '0' + number;
+                    } else {
+                        // For simplicity, just send single digit
+                        buffer[pos++] = '0' + (number % 10);
+                    }
+                    
+                    if(i < numbersToSend - 1) {
+                        buffer[pos++] = ',';
+                    }
+                }
+                
+                // Add end marker immediately
+                if(pos + 15 < sizeof(buffer)) {
+                    memcpy(buffer + pos, "END_OF_TRANSFER", 15);
+                    pos += 15;
+                }
+                
+                sent = call TCP.write(testClientFd, buffer, pos);
+                if(sent > 0) {
+                    dbg(PROJECT3TGEN_CHANNEL, "Node %d: Sent %d bytes on socket %d\n",
+                        TOS_NODE_ID, sent, testClientFd);
+                    
+                    currentNumber += numbersToSend;
+                    
+                    // Close immediately after sending all data
+                    if(currentNumber >= bytesToTransfer) {
+                        dbg(PROJECT3TGEN_CHANNEL, "Node %d: All data sent, initiating graceful close\n", 
+                            TOS_NODE_ID);
+                        
+                        // Small delay before close
+                        if(clientTimer % 2 == 0) {  // Wait 2 seconds
+                            call TCP.close(testClientFd);
+                            testClientFd = NULL_SOCKET;
+                            clientConnected = FALSE;
+                            currentNumber = 0;
+                        }
+                    }
+                }
+            }
+        }
+    }
 
    void makePack(pack *pkg, uint16_t srcAddr, uint16_t destAddr, uint16_t timeToLive, uint16_t prot, uint16_t seqNum, uint8_t* payld, uint8_t payldLen){
       pkg->src = srcAddr;

@@ -140,12 +140,11 @@ implementation {
     }
 
     // Send TCP packet
-    error_t sendTCPPacket(socket_store_t* sock, TCPHeader* header, 
-                         uint8_t* data, uint16_t dataLen, 
-                         bool addToQueue, bool isSYN, bool isFIN) {
+    error_t sendTCPPacket(socket_store_t* sock, TCPHeader* header, uint8_t* data, uint16_t dataLen, bool addToQueue, bool isSYN, bool isFIN) {
         uint8_t buffer[PACKET_MAX_PAYLOAD_SIZE];
         uint16_t totalSize;
         socket_t sockId;
+        uint32_t currentSeq = header->SeqNum;  // Store current sequence
         
         totalSize = TCP_HEADER_SIZE + dataLen;
         
@@ -186,52 +185,39 @@ implementation {
         // Calculate socket ID
         sockId = (socket_t)(sock - sockets);
         
-        // Add debug for sending
-        dbg("Project3TGen", "Debug(1): TCP Packet Sent to Node %d for Port %hu (flags: 0x%02x, Seq: %lu, Ack: %lu)\n",
-            sock->dest.addr, sock->dest.port, header->flags, 
-            header->SeqNum, header->AckNum);
-        
-        dbg(TRANSPORT_CHANNEL, "Node %d: Sending TCP packet to %d:%hu, flags: 0x%02x, Seq: %lu, Ack: %lu, Win: %hu\n",
-            TOS_NODE_ID, sock->dest.addr, sock->dest.port, header->flags, 
-            header->SeqNum, header->AckNum, header->AdvWindow);
-        
-        // For SYN packets, check if we should use flooding
-        if(isSYN) {
-            // Check if destination is a direct neighbor
-            uint8_t neighborCount = call NeighborDiscovery.getNeighborCount();
-            uint8_t j;
-            bool isNeighbor = FALSE;
-            for(j = 0; j < neighborCount; j++) {
-                if(call NeighborDiscovery.getNeighbor(j) == sock->dest.addr) {
-                    isNeighbor = TRUE;
-                    break;
-                }
-            }
-            
-            if(!isNeighbor) {
-                dbg(TRANSPORT_CHANNEL, "Node %d: Destination %d is not a direct neighbor, TCP may fail\n",
-                    TOS_NODE_ID, sock->dest.addr);
-            }
+        // Project 3 debug messages for specific packet types
+        if(isSYN && (header->flags & TCP_FLAG_ACK)) {
+            dbg("Project3TGen", "Debug(1): Syn Ack Packet Sent to Node %d for Port %hu\n",
+                sock->dest.addr, sock->dest.port);
+        } else if(isSYN) {
+            dbg("Project3TGen", "Debug(1): SYN Packet Sent from Node %d to Node %d for Port %hu\n",
+                TOS_NODE_ID, sock->dest.addr, sock->dest.port);
         }
+        
+        dbg(TRANSPORT_CHANNEL, "Node %d: Sending TCP packet to %d:%hu, flags: 0x%02x, Seq: %lu, Ack: %lu, Win: %hu, Len: %u\n",
+            TOS_NODE_ID, sock->dest.addr, sock->dest.port, header->flags, 
+            header->SeqNum, header->AckNum, header->AdvWindow, dataLen);
         
         // Use IP layer to send
         call IP.sendMessage(sock->dest.addr, buffer, PROTOCOL_TCP);
         
         // Add to retransmission queue if needed
         if(addToQueue) {
-            addToUnackedQueue(header->SeqNum, dataLen, data, sockId, isSYN, isFIN);
-
-            // Increment sequence number based on what we just sent
-            // SYN and FIN each consume 1 byte, data packets consume their byte count
-            if(isSYN) {
-                sock->nextSequence++;
-            }
-            if(isFIN) {
-                sock->nextSequence++;
-            }
-            if(dataLen > 0) {
-                sock->nextSequence += dataLen;
-            }
+            addToUnackedQueue(currentSeq, dataLen, data, sockId, isSYN, isFIN);
+        }
+        
+        // Update sequence tracking
+        if(isSYN || isFIN) {
+            // SYN/FIN consume 1 sequence number
+            sock->lastByteSent = currentSeq + 1;
+            sock->nextSequence = currentSeq + 1;
+        } else if(dataLen > 0) {
+            // Data consumes its length in sequence numbers
+            sock->lastByteSent = currentSeq + dataLen;
+            sock->nextSequence = currentSeq + dataLen;
+        } else {
+            // ACK-only packet doesn't consume sequence numbers
+            sock->lastByteSent = currentSeq;
         }
         
         return SUCCESS;
@@ -258,6 +244,10 @@ implementation {
             return FAIL;
         }
         
+        // REQUIRED PROJECT 3 DEBUG MESSAGE
+        dbg("Project3TGen", "Debug(1): Syn Packet Arrived from Node %d for Port %hu\n",
+            srcAddr, header->DestPort);
+        
         // Initialize new socket for incoming connection
         newSock->state = SYN_RCVD;
         newSock->src = header->DestPort;
@@ -268,19 +258,16 @@ implementation {
         newSock->lastByteRead = 0;
         newSock->lastByteRcvd = 0;
         newSock->lastByteAcked = 0;
-        newSock->lastByteSent = 0;
-        newSock->peerWindow = header->AdvWindow;
+        newSock->lastByteSent = newSock->nextSequence;  // What we will send
+        newSock->peerWindow = header->AdvWindow;  // Store peer's advertised window
         newSock->effectiveWindow = SOCKET_BUFFER_SIZE;
         newSock->RTT = 1000;
         newSock->RTTVar = 0;
         newSock->timeout = 2000;
         newSock->timeWaitCount = 0;
         
-        dbg("Project3TGen", "Debug(1): Syn Packet Arrived from Node %d for Port %hu\n",
-            srcAddr, header->DestPort);
-        
-        dbg(TRANSPORT_CHANNEL, "Node %d: Received SYN from %d:%hu, creating socket in SYN_RCVD (expected: %lu)\n",
-            TOS_NODE_ID, srcAddr, header->SrcPort, newSock->nextExpected);
+        dbg(TRANSPORT_CHANNEL, "Node %d: Received SYN from %d:%hu, creating socket in SYN_RCVD (expected: %lu, peerWindow: %hu)\n",
+            TOS_NODE_ID, srcAddr, header->SrcPort, newSock->nextExpected, newSock->peerWindow);
         
         // Send SYN-ACK
         synAckHeader.SrcPort = newSock->src;
@@ -292,52 +279,73 @@ implementation {
         synAckHeader.AdvWindow = newSock->effectiveWindow;
         synAckHeader.UrgPtr = 0;
         
-        sendTCPPacket(newSock, &synAckHeader, NULL, 0, TRUE, TRUE, FALSE);
-        
-        // Update lastByteSent to reflect the SYN-ACK we just sent
-        newSock->lastByteSent = newSock->nextSequence;
-        
+        // REQUIRED PROJECT 3 DEBUG MESSAGE
         dbg("Project3TGen", "Debug(1): Syn Ack Packet Sent to Node %d for Port %hu\n",
             newSock->dest.addr, newSock->dest.port);
         
-        dbg(TRANSPORT_CHANNEL, "Node %d: Sent SYN-ACK to %d:%hu (Seq: %lu, Ack: %lu)\n",
+        sendTCPPacket(newSock, &synAckHeader, NULL, 0, TRUE, TRUE, FALSE);
+        
+        dbg(TRANSPORT_CHANNEL, "Node %d: Sent SYN-ACK to %d:%hu (Seq: %lu, Ack: %lu, Win: %hu)\n",
             TOS_NODE_ID, newSock->dest.addr, newSock->dest.port, 
-            synAckHeader.SeqNum, synAckHeader.AckNum);
+            synAckHeader.SeqNum, synAckHeader.AckNum, synAckHeader.AdvWindow);
         
         return SUCCESS;
     }
 
     // Handle established connection packet
-    error_t handleEstablishedConnection(socket_store_t* sock, TCPHeader* header, 
-                                       uint8_t* data, uint16_t dataLen) {
+    error_t handleEstablishedConnection(socket_store_t* sock, TCPHeader* header, uint8_t* data, uint16_t dataLen) {
         TCPHeader ackHeader;
         socket_t sockId = (socket_t)(sock - sockets);
         uint16_t copyLen;
         uint32_t bufferAvailable;
         bool sendAck = FALSE;
         
-        // Always update peer window from incoming packet
+        // CRITICAL FIX: Always update peer window from incoming packet
         sock->peerWindow = header->AdvWindow;
+        dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d updated peerWindow to %hu (from packet)\n", 
+            TOS_NODE_ID, sockId, sock->peerWindow);
         
         // Process ACK flag
         if(header->flags & TCP_FLAG_ACK) {
             removeAcknowledged(header->AckNum);
             if(header->AckNum > sock->lastByteAcked) {
                 sock->lastByteAcked = header->AckNum;
+                dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d lastByteAcked updated to %lu\n",
+                    TOS_NODE_ID, sockId, sock->lastByteAcked);
             }
         }
+        
         // Process SYN+ACK (for SYN_SENT state completing handshake)
-        if(header->flags && ((TCP_FLAG_SYN) && (TCP_FLAG_ACK))) {
-            if((sock->state == SYN_SENT)||(sock->state == SYN_RCVD) && header->AckNum == sock->nextSequence) {
-                sock->nextExpected = header->SeqNum + 1;
+        if((header->flags & TCP_FLAG_SYN) && (header->flags & TCP_FLAG_ACK)) {
+            if(sock->state == SYN_SENT && header->AckNum == sock->nextSequence) {
+                removeAcknowledged(header->AckNum);
+                sock->nextExpected = header->SeqNum + 1;  // SYN consumes 1 byte
                 sock->state = ESTABLISHED;
-                dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d SYN-ACK received, transitioning to ESTABLISHED\n",
+                sock->peerWindow = header->AdvWindow;
+                
+                // Send ACK to complete handshake
+                ackHeader.SrcPort = sock->src;
+                ackHeader.DestPort = sock->dest.port;
+                ackHeader.SeqNum = sock->nextSequence;
+                ackHeader.AckNum = sock->nextExpected;
+                ackHeader.flags = TCP_FLAG_ACK;
+                ackHeader.reserved = 0;
+                ackHeader.AdvWindow = sock->effectiveWindow;
+                ackHeader.UrgPtr = 0;
+                
+                sendTCPPacket(sock, &ackHeader, NULL, 0, FALSE, FALSE, FALSE);
+                
+                dbg(PROJECT3TGEN_CHANNEL, "Debug(1): Connection Established with Node %d for Port %hu\n",
+                    sock->dest.addr, sock->dest.port);
+                dbg(TRANSPORT_CHANNEL, "Node %d: Connection ESTABLISHED (socket %d)\n",
                     TOS_NODE_ID, sockId);
-                sendAck = TRUE;
+                return SUCCESS;
             }
+            // If not our SYN-ACK, treat as regular packet
         }  
+        
         // Process FIN flag
-        else if(header->flags && TCP_FLAG_FIN) {
+        if(header->flags & TCP_FLAG_FIN) {
             sock->nextExpected = header->SeqNum + 1;
             
             if(sock->state == ESTABLISHED) {
@@ -357,6 +365,7 @@ implementation {
             
             sendAck = TRUE;
         }
+        
         // Process data
         if(dataLen > 0) {
             dbg(TRANSPORT_CHANNEL,"Node: %d copying data into buffer\n",TOS_NODE_ID);
@@ -383,14 +392,33 @@ implementation {
                     TOS_NODE_ID, sockId, header->SeqNum, sock->nextExpected);
             }
         }
+        
         // Process plain ACK (no data, no SYN, no FIN)
-        else if(header->flags & TCP_FLAG_ACK) {
-            // Plain ACK already handled above
+        if(header->flags & TCP_FLAG_ACK) {
+            // For SYN_RCVD state, check if this ACK acknowledges our SYN-ACK
             if(sock->state == SYN_RCVD) {
-                sock->state = ESTABLISHED;
-                dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d SYN_RCVD ACK received, transitioning to ESTABLISHED\n",
-                    TOS_NODE_ID, sockId);
-            } else if(sock->state == FIN_WAIT_1) {
+                // The ACK should acknowledge our SYN-ACK (sequence number sent in SYN-ACK + 1)
+                // We sent SYN-ACK with seqNum = sock->nextSequence (at that time)
+                // The ACK should be for seqNum + 1
+                uint32_t expectedAck = sock->lastByteSent;  // This should be seqNum + 1 after SYN-ACK was sent
+                
+                if(header->AckNum == expectedAck) {
+                    sock->state = ESTABLISHED;
+                    sock->lastByteAcked = header->AckNum;
+                    removeAcknowledged(header->AckNum);
+                    
+                    dbg(PROJECT3TGEN_CHANNEL, "Debug(1): Connection Established with Node %d for Port %hu\n",
+                        sock->dest.addr, sock->dest.port);
+                    dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d SYN_RCVD ACK received, transitioning to ESTABLISHED (Ack: %lu, expected: %lu)\n",
+                        TOS_NODE_ID, sockId, header->AckNum, expectedAck);
+                    sendAck = TRUE;
+                } else {
+                    dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d received ACK with wrong AckNum (got: %lu, expected: %lu, lastByteSent: %lu)\n",
+                        TOS_NODE_ID, sockId, header->AckNum, expectedAck, sock->lastByteSent);
+                }
+                sendAck = TRUE;
+            } 
+            else if(sock->state == FIN_WAIT_1) {
                 sock->state = FIN_WAIT_2;
                 dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d FIN_WAIT_1 ACK received, moving to FIN_WAIT_2\n",
                     TOS_NODE_ID, sockId);
@@ -419,8 +447,8 @@ implementation {
             
             sendTCPPacket(sock, &ackHeader, NULL, 0, FALSE, FALSE, FALSE);
             
-            dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d sent ACK (AckNum: %lu)\n",
-                TOS_NODE_ID, sockId, ackHeader.AckNum);
+            dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d sent ACK (AckNum: %lu, AdvWindow: %hu)\n",
+                TOS_NODE_ID, sockId, ackHeader.AckNum, ackHeader.AdvWindow);
         }
         
         return SUCCESS;
@@ -436,20 +464,70 @@ implementation {
         socket_t sockId;
         uint16_t maxSegment;
         uint16_t sendSize;
+        uint32_t effectivePeerWindow;
+        uint8_t idx;
+        uint32_t rcvWindow;
+        uint32_t rcvUsed;
         
         sockId = (socket_t)(sock - sockets);
         
+        // FIX: Handle peer window properly - if it's 0, set a reasonable default
+        if(sock->peerWindow == 0) {
+            // Peer window is zero - this shouldn't happen after connection
+            // Use our buffer size as a reasonable default
+            sock->peerWindow = SOCKET_BUFFER_SIZE;
+            dbg(TRANSPORT_CHANNEL, "Node %d: WARNING: Socket %d peerWindow was 0, setting to %hu\n",
+                TOS_NODE_ID, sockId, sock->peerWindow);
+        }
+        
+        // Calculate effective peer window (capped at our buffer size)
+        effectivePeerWindow = sock->peerWindow;
+        if(effectivePeerWindow > SOCKET_BUFFER_SIZE) {
+            effectivePeerWindow = SOCKET_BUFFER_SIZE;
+        }
+        
+        // Calculate window used (bytes in flight)
+        if(sock->lastByteSent > sock->lastByteAcked) {
+            windowUsed = sock->lastByteSent - sock->lastByteAcked;
+        } else {
+            windowUsed = 0;  // No outstanding data
+        }
+        
         // Calculate available window
-//        windowSize = min(sock->peerWindow, sock->effectiveWindow);
-        windowSize = sock->effectiveWindow;
-        windowUsed = sock->lastByteSent - sock->lastByteAcked;
-        windowAvailable = windowSize - windowUsed;
+        if(effectivePeerWindow > windowUsed) {
+            windowAvailable = effectivePeerWindow - windowUsed;
+        } else {
+            windowAvailable = 0;
+        }
         
-        dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d window: used=%lu, avail=%lu, peerWin=%lu, effWin=%lu\n",
-            TOS_NODE_ID, sockId, windowUsed, windowAvailable, sock->peerWindow, sock->effectiveWindow);
+        dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d window calc: peerWin=%lu, used=%lu, avail=%lu, lastSent=%lu, lastAcked=%lu\n",
+            TOS_NODE_ID, sockId, effectivePeerWindow, windowUsed, windowAvailable,
+            sock->lastByteSent, sock->lastByteAcked);
         
+        // If window is closed or fully used, wait
+        if(windowAvailable == 0) {
+            dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d window closed/used, waiting for ACKs\n",
+                TOS_NODE_ID, sockId);
+            return 0;
+        }
+        
+        // Simple stop-and-wait for now (can be extended to larger window)
+        // Only send if nothing is unacknowledged
+        if(unackedCount > 0) {
+            for(idx = 0; idx < unackedCount; idx++) {
+                if(unackedQueue[idx].sockId == sockId) {
+                    dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d has %d unacked segments, waiting\n",
+                        TOS_NODE_ID, sockId, unackedCount);
+                    return 0; // Wait for acknowledgment
+                }
+            }
+        }
+        
+        // Send data while we have window available
         while(sent < dataLen && windowAvailable > 0) {
             sendSize = dataLen - sent;
+            
+            // Don't exceed available window
             if(sendSize > windowAvailable) {
                 sendSize = windowAvailable;
             }
@@ -460,6 +538,13 @@ implementation {
                 sendSize = maxSegment;
             }
             
+            // Don't exceed remaining data
+            if(sendSize > (dataLen - sent)) {
+                sendSize = dataLen - sent;
+            }
+            
+            if(sendSize == 0) break;
+            
             // Prepare header
             header.SrcPort = sock->src;
             header.DestPort = sock->dest.port;
@@ -467,19 +552,37 @@ implementation {
             header.AckNum = sock->nextExpected;
             header.flags = TCP_FLAG_PUSH | TCP_FLAG_ACK;
             header.reserved = 0;
-            header.AdvWindow = SOCKET_BUFFER_SIZE - (sock->lastByteRcvd - sock->lastByteRead);
+            
+            // Calculate available receive window for advertisement
+            rcvWindow = SOCKET_BUFFER_SIZE;
+            if(sock->lastByteRcvd >= sock->lastByteRead) {
+                rcvUsed = sock->lastByteRcvd - sock->lastByteRead;
+                if(rcvUsed < rcvWindow) {
+                    rcvWindow -= rcvUsed;
+                } else {
+                    rcvWindow = 0;
+                }
+            }
+            header.AdvWindow = (rcvWindow > 0xFFFF) ? 0xFFFF : (uint16_t)rcvWindow;
             header.UrgPtr = 0;
             
             // Send segment
-            sendTCPPacket(sock, &header, data + sent, sendSize, TRUE, FALSE, FALSE);
-            
-            // Update state
-            sock->lastByteSent = sock->nextSequence;
-            sent += sendSize;
-            windowAvailable -= sendSize;
-            
-            dbg(TRANSPORT_CHANNEL, "Node %d: Sent %d bytes on socket %d (seq: %lu, total sent: %d)\n",
-                TOS_NODE_ID, sendSize, sockId, header.SeqNum, sent);
+            if(sendTCPPacket(sock, &header, data + sent, sendSize, TRUE, FALSE, FALSE) == SUCCESS) {
+                // Update counters
+                sent += sendSize;
+                windowAvailable -= sendSize;
+                
+                // Update sequence tracking
+                sock->nextSequence += sendSize;
+                sock->lastByteSent = sock->nextSequence;
+                
+                dbg(TRANSPORT_CHANNEL, "Node %d: Sent %d bytes on socket %d (seq: %lu, total sent: %d, new seq: %lu)\n",
+                    TOS_NODE_ID, sendSize, sockId, header.SeqNum, sent, sock->nextSequence);
+            } else {
+                dbg(TRANSPORT_CHANNEL, "Node %d: Failed to send segment on socket %d\n",
+                    TOS_NODE_ID, sockId);
+                break;
+            }
         }
         
         return sent;
@@ -588,14 +691,14 @@ implementation {
         sock->dest = *addr;
         sock->nextExpected = 0;
         sock->lastByteAcked = 0;
-        sock->lastByteSent = 0;
+        sock->lastByteSent = sock->nextSequence;  // Will send from this sequence
         sock->effectiveWindow = SOCKET_BUFFER_SIZE;
         sock->peerWindow = SOCKET_BUFFER_SIZE;
         
         // Create SYN packet
         synHeader.SrcPort = sock->src;
         synHeader.DestPort = sock->dest.port;
-        synHeader.SeqNum = sock->nextSequence;
+        synHeader.SeqNum = sock->nextSequence;  // Send initial sequence
         synHeader.AckNum = 0;
         synHeader.flags = TCP_FLAG_SYN;
         synHeader.reserved = 0;
@@ -604,9 +707,6 @@ implementation {
         
         // Send SYN
         sendTCPPacket(sock, &synHeader, NULL, 0, TRUE, TRUE, FALSE);
-        
-        // Update lastByteSent to reflect the SYN we just sent
-        sock->lastByteSent = sock->nextSequence;
         
         dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d connecting from port %hu to %d:%hu (Seq: %lu)\n",
             TOS_NODE_ID, fd, synHeader.SrcPort, addr->addr, addr->port, synHeader.SeqNum);
@@ -627,10 +727,6 @@ implementation {
             return NULL_SOCKET;
         }
         
-        // Debug: print listening socket state and port
-//        dbg(TRANSPORT_CHANNEL, "Node %d: accept() called for fd=%d (listen state=%d, port=%hu)\n",
-//            TOS_NODE_ID, fd, listenSock->state, listenSock->src);
-
         // Look for established connections
         for(j = 0; j < MAX_NUM_OF_SOCKETS; j++) {
             if(sockets[j].state == ESTABLISHED && sockets[j].src == listenSock->src) {
@@ -665,8 +761,7 @@ implementation {
         
         sock = &sockets[fd];
         if(sock->state != ESTABLISHED) {
-            dbg(TRANSPORT_CHANNEL, "Node %d: write failed - socket %d not ESTABLISHED (state: %d)\n",
-                TOS_NODE_ID, fd, sock->state);
+            dbg(TRANSPORT_CHANNEL, "Node %d: write failed - socket %d not ESTABLISHED (state: %d)\n", TOS_NODE_ID, fd, sock->state);
             return 0;
         }
         
@@ -700,14 +795,10 @@ implementation {
         uint32_t startIdx;
         uint16_t firstPart;
         
-//        dbg(TRANSPORT_CHANNEL,"reading socket %d\n",fd);
-
         if(fd >= MAX_NUM_OF_SOCKETS) {
             return 0;
         }
         
-//        dbg(TRANSPORT_CHANNEL,"still reading socket %d\n",fd);
-
         sock = &sockets[fd];
         available = sock->lastByteRcvd - sock->lastByteRead;
         
@@ -718,8 +809,6 @@ implementation {
             return 0;
         }
         
-//        dbg(TRANSPORT_CHANNEL,"yep still reading socket %d\n",fd);
-
         readLen = bufflen;
         if(readLen > available) {
             readLen = available;
@@ -764,6 +853,9 @@ implementation {
         
         sock = &sockets[fd];
         
+        dbg(PROJECT3TGEN_CHANNEL, "Node %d: TCP.close() called on socket %d (state: %d)\n",
+            TOS_NODE_ID, fd, sock->state);
+        
         if(sock->state == ESTABLISHED) {
             // Send FIN packet
             finHeader.SrcPort = sock->src;
@@ -775,12 +867,16 @@ implementation {
             finHeader.AdvWindow = sock->effectiveWindow;
             finHeader.UrgPtr = 0;
             
+            dbg(PROJECT3TGEN_CHANNEL, "Node %d: Sending FIN on socket %d to %d:%hu\n",
+                TOS_NODE_ID, fd, sock->dest.addr, sock->dest.port);
+            
             sendTCPPacket(sock, &finHeader, NULL, 0, TRUE, FALSE, TRUE);
             
             sock->state = FIN_WAIT_1;
             
             dbg(TRANSPORT_CHANNEL, "Node %d: Sent FIN on socket %d, moving to FIN_WAIT_1\n",
                 TOS_NODE_ID, fd);
+            return SUCCESS;
         } else if(sock->state == CLOSE_WAIT) {
             // Send FIN for passive close
             finHeader.SrcPort = sock->src;
@@ -798,14 +894,16 @@ implementation {
             
             dbg(TRANSPORT_CHANNEL, "Node %d: Sent FIN on socket %d, moving to LAST_ACK\n",
                 TOS_NODE_ID, fd);
+            return SUCCESS;
         } else {
             // Just close the socket
             sock->state = CLOSED;
-            dbg(TRANSPORT_CHANNEL, "Node %d: Closed socket %d\n",
-                TOS_NODE_ID, fd);
+            dbg(TRANSPORT_CHANNEL, "Node %d: Closed socket %d (was in state %d)\n",
+                TOS_NODE_ID, fd, sock->state);
+            return SUCCESS;
         }
         
-        return SUCCESS;
+        return FAIL;
     }
 
     command error_t TCP.receive(pack* package, uint8_t pktLen) {
@@ -815,12 +913,22 @@ implementation {
         uint8_t* payload;
         uint16_t srcAddr;
         TCPHeader ackHeader;
+        uint8_t idx;
+        uint16_t totalSegmentLen;
+        bool isPureAck;
         
-        if(package == NULL) {
+        if(package == NULL || pktLen == 0) {
+            dbg(TRANSPORT_CHANNEL, "Node %d: TCP.receive - NULL packet or zero length\n", TOS_NODE_ID);
             return FAIL;
         }
         
         // Extract TCP header from payload (after IP header)
+        if(pktLen <= IP_HEADER_SIZE) {
+            dbg(TRANSPORT_CHANNEL, "Node %d: TCP.receive - Packet too short (len=%u, IP_HDR=%u)\n", 
+                TOS_NODE_ID, pktLen, IP_HEADER_SIZE);
+            return FAIL;
+        }
+        
         payload = (uint8_t*)package->payload + IP_HEADER_SIZE;
         srcAddr = package->src;
         
@@ -840,17 +948,54 @@ implementation {
         header.AdvWindow = (payload[14] << 8) | payload[15];
         header.UrgPtr = (payload[16] << 8) | payload[17];
         
-        // Calculate data length from actual packet length
-        if (pktLen > (uint8_t)(IP_HEADER_SIZE + TCP_HEADER_SIZE)) {
-            dataLen = pktLen - IP_HEADER_SIZE - TCP_HEADER_SIZE;
+        // CRITICAL FIX: Calculate data length correctly
+        // pktLen includes IP header + TCP header + data
+        totalSegmentLen = pktLen - IP_HEADER_SIZE;
+        
+        if(totalSegmentLen >= TCP_HEADER_SIZE) {
+            dataLen = totalSegmentLen - TCP_HEADER_SIZE;
         } else {
             dataLen = 0;
         }
         
+        // DEBUG: Log packet details
+        dbg(TRANSPORT_CHANNEL, "Node %d: TCP.receive - SrcPort=%hu, DestPort=%hu, flags=0x%02x, Seq=%lu, Ack=%lu, totalSegLen=%u, dataLen=%u\n",
+            TOS_NODE_ID, header.SrcPort, header.DestPort, header.flags, 
+            header.SeqNum, header.AckNum, totalSegmentLen, dataLen);
         
-        dbg(TRANSPORT_CHANNEL, "Node %d: Received TCP packet from %d:%hu to port %hu, flags: 0x%02x, Seq: %lu, Ack: %lu\n",
-            TOS_NODE_ID, srcAddr, header.SrcPort, header.DestPort, 
-            header.flags, header.SeqNum, header.AckNum);
+        // FIX #1: Handle pure ACK packets (no data)
+        isPureAck = ((header.flags & TCP_FLAG_ACK) && 
+                    !(header.flags & TCP_FLAG_SYN) && 
+                    !(header.flags & TCP_FLAG_FIN) && 
+                    !(header.flags & TCP_FLAG_PUSH) && 
+                    !(header.flags & TCP_FLAG_URG) && 
+                    !(header.flags & TCP_FLAG_RESET));
+        
+        if(isPureAck) {
+            dbg(TRANSPORT_CHANNEL, "Node %d: Pure ACK packet detected, setting dataLen=0 (was %u)\n",
+                TOS_NODE_ID, dataLen);
+            dataLen = 0;
+        }
+        
+        // Additional check: If it's an ACK for SYN or FIN, no data expected
+        if((header.flags & TCP_FLAG_ACK) && 
+        ((header.flags & TCP_FLAG_SYN) || (header.flags & TCP_FLAG_FIN))) {
+            if(dataLen <= 4) {  // Small amount of likely garbage
+                dbg(TRANSPORT_CHANNEL, "Node %d: SYN-ACK or FIN-ACK with small data (%u), treating as no data\n",
+                    TOS_NODE_ID, dataLen);
+                dataLen = 0;
+            }
+        }
+        
+        // Verify data length is reasonable
+        if(dataLen > PACKET_MAX_PAYLOAD_SIZE - IP_HEADER_SIZE - TCP_HEADER_SIZE) {
+            dbg(TRANSPORT_CHANNEL, "Node %d: WARNING: dataLen %u exceeds max possible, truncating\n",
+                TOS_NODE_ID, dataLen);
+            dataLen = PACKET_MAX_PAYLOAD_SIZE - IP_HEADER_SIZE - TCP_HEADER_SIZE;
+        }
+        
+        dbg(TRANSPORT_CHANNEL, "Node %d: Final dataLen=%u for flags=0x%02x\n",
+            TOS_NODE_ID, dataLen, header.flags);
         
         // Find existing socket
         sock = findSocket(header.DestPort, srcAddr, header.SrcPort);
@@ -858,33 +1003,28 @@ implementation {
         if(sock == NULL) {
             // Handle new connection (SYN packet)
             if((header.flags & TCP_FLAG_SYN) && !(header.flags & TCP_FLAG_ACK)) {
+                dbg(PROJECT3TGEN_CHANNEL, "Debug(1): Syn Packet Arrived from Node %d for Port %hu\n",
+                    srcAddr, header.DestPort);
                 return handleSYN(&header, srcAddr);
             }
             
-            dbg(TRANSPORT_CHANNEL, "Node %d: No socket found for packet from %d:%hu\n",
-                TOS_NODE_ID, srcAddr, header.SrcPort);
+            dbg(TRANSPORT_CHANNEL, "Node %d: No socket found for packet from %d:%hu (flags=0x%02x)\n",
+                TOS_NODE_ID, srcAddr, header.SrcPort, header.flags);
             return FAIL;
         }
         
         // Handle based on socket state
         switch(sock->state) {
-            case SYN_SENT:
-            case SYN_RCVD:
-            case ESTABLISHED:
-            case FIN_WAIT_1:
-            case FIN_WAIT_2:
-            case CLOSING:
-            case CLOSE_WAIT:
-            case LAST_ACK:
-/*                            // Handle SYN-ACK for our connection attempt
+            case SYN_SENT: {
+                // Check for SYN-ACK response to our connection attempt
                 if((header.flags & TCP_FLAG_SYN) && (header.flags & TCP_FLAG_ACK)) {
-                    if(header.AckNum == sock->nextSequence) {
+                    if(header.AckNum == sock->lastByteSent) {  // Should acknowledge our SYN
                         removeAcknowledged(header.AckNum);
                         sock->nextExpected = header.SeqNum + 1;  // SYN consumes 1 byte
                         sock->state = ESTABLISHED;
                         sock->peerWindow = header.AdvWindow;
                         
-                        // Send ACK
+                        // Send ACK to complete handshake
                         ackHeader.SrcPort = sock->src;
                         ackHeader.DestPort = sock->dest.port;
                         ackHeader.SeqNum = sock->nextSequence;
@@ -898,25 +1038,44 @@ implementation {
                         
                         dbg(TRANSPORT_CHANNEL, "Node %d: Connection ESTABLISHED (socket %d)\n",
                             TOS_NODE_ID, (socket_t)(sock - sockets));
+                        dbg(PROJECT3TGEN_CHANNEL, "Debug(1): Connection Established with Node %d for Port %hu\n",
+                            sock->dest.addr, sock->dest.port);
+                        return SUCCESS;
+                    } else {
+                        dbg(TRANSPORT_CHANNEL, "Node %d: SYN-ACK with wrong AckNum (got %lu, expected %lu)\n",
+                            TOS_NODE_ID, header.AckNum, sock->lastByteSent);
                     }
                 }
-
-                else{
-*/
-                    return handleEstablishedConnection(sock, &header, 
+                // Fall through to handle other cases
+                return handleEstablishedConnection(sock, &header, 
                     payload + TCP_HEADER_SIZE, dataLen);
-//                }
-
-                break;
+            }
+            
+            case SYN_RCVD:
+            case ESTABLISHED:
+            case FIN_WAIT_1:
+            case FIN_WAIT_2:
+            case CLOSING:
+            case CLOSE_WAIT:
+            case LAST_ACK:
+                return handleEstablishedConnection(sock, &header, 
+                    payload + TCP_HEADER_SIZE, dataLen);
+            
             case TIME_WAIT:
                 if(sock->timeWaitCount > 0) {
                     sock->timeWaitCount--;
+                    dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d TIME_WAIT count: %lu\n",
+                        TOS_NODE_ID, (socket_t)(sock - sockets), sock->timeWaitCount);
                 } else {
                     sock->state = CLOSED;
+                    dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d TIME_WAIT expired, moving to CLOSED\n",
+                        TOS_NODE_ID, (socket_t)(sock - sockets));
                 }
                 break;
                 
             default:
+                dbg(TRANSPORT_CHANNEL, "Node %d: Received packet for socket %d in unexpected state %d\n",
+                    TOS_NODE_ID, (socket_t)(sock - sockets), sock->state);
                 break;
         }
         
@@ -925,65 +1084,122 @@ implementation {
     
     // Retransmission timer event
     event void RetransmitTimer.fired() {
-        uint32_t currentTime = 0; // Simplified - would normally get from timer
         uint8_t j;
+        bool needRestart = FALSE;
+        uint8_t k;
+        uint8_t writeIdx;  // MOVED TO TOP
+        static uint8_t retryCount[10] = {0};  // MOVED TO TOP (global to function)
+        
+        dbg(TRANSPORT_CHANNEL, "Node %d: Retransmit timer fired, %d unacked segments\n",
+            TOS_NODE_ID, unackedCount);
         
         // Check for timed out segments
         for(j = 0; j < unackedCount; j++) {
-            // Simple timeout check (simplified)
-            if(unackedQueue[j].timeout > 0) {
-                unackedQueue[j].timeout--;
+            if(unackedQueue[j].timeout > 100) {
+                unackedQueue[j].timeout -= 100;
+                needRestart = TRUE;
             } else {
-                // Retransmit this segment
+                // Timeout occurred - retransmit this segment
                 socket_store_t* sock = &sockets[unackedQueue[j].sockId];
                 TCPHeader retransHeader;
+                socket_t sockId = unackedQueue[j].sockId;
                 
+                // Prepare retransmission header
                 retransHeader.SrcPort = sock->src;
                 retransHeader.DestPort = sock->dest.port;
                 retransHeader.SeqNum = unackedQueue[j].seqNum;
                 retransHeader.AckNum = sock->nextExpected;
-                retransHeader.flags = TCP_FLAG_ACK;
+                
+                // Set appropriate flags
+                retransHeader.flags = TCP_FLAG_ACK; // Always include ACK
                 
                 if(unackedQueue[j].isSYN) {
                     retransHeader.flags |= TCP_FLAG_SYN;
+                    dbg(TRANSPORT_CHANNEL, "Node %d: Retransmitting SYN on socket %d (Seq: %lu)\n",
+                        TOS_NODE_ID, sockId, unackedQueue[j].seqNum);
                 }
                 if(unackedQueue[j].isFIN) {
                     retransHeader.flags |= TCP_FLAG_FIN;
+                    dbg(TRANSPORT_CHANNEL, "Node %d: Retransmitting FIN on socket %d (Seq: %lu)\n",
+                        TOS_NODE_ID, sockId, unackedQueue[j].seqNum);
                 }
                 if(unackedQueue[j].length > 0) {
                     retransHeader.flags |= TCP_FLAG_PUSH;
+                    dbg(TRANSPORT_CHANNEL, "Node %d: Retransmitting DATA on socket %d (Seq: %lu, Len: %u)\n",
+                        TOS_NODE_ID, sockId, unackedQueue[j].seqNum, unackedQueue[j].length);
                 }
                 
                 retransHeader.reserved = 0;
                 retransHeader.AdvWindow = sock->effectiveWindow;
                 retransHeader.UrgPtr = 0;
                 
-                // Retransmit without re-adding to unacked queue and without
-                // advancing the sequence (it's already accounted for)
+                // Retransmit with exponential backoff
                 sendTCPPacket(sock, &retransHeader, 
-                            unackedQueue[j].data, unackedQueue[j].length, 
-                            FALSE, unackedQueue[j].isSYN, unackedQueue[j].isFIN);
+                            (unackedQueue[j].length > 0) ? unackedQueue[j].data : NULL,
+                            unackedQueue[j].length, 
+                            FALSE, // Don't add to queue again
+                            unackedQueue[j].isSYN, 
+                            unackedQueue[j].isFIN);
                 
-                // Reset timeout with exponential backoff
-                unackedQueue[j].timeout = 2000; // Reset to 2 seconds
+                // Exponential backoff: double the timeout (max 16 seconds)
+                if(unackedQueue[j].timeout < 16000) {
+                    unackedQueue[j].timeout *= 2;
+                } else {
+                    unackedQueue[j].timeout = 16000;
+                }
                 
-                dbg(TRANSPORT_CHANNEL, "Node %d: Retransmitting segment (Seq: %lu) on socket %d\n",
-                    TOS_NODE_ID, unackedQueue[j].seqNum, unackedQueue[j].sockId);
+                dbg(TRANSPORT_CHANNEL, "Node %d: Retransmitted segment (Seq: %lu) on socket %d, new timeout: %lu\n",
+                    TOS_NODE_ID, unackedQueue[j].seqNum, sockId, unackedQueue[j].timeout);
+                
+                needRestart = TRUE;
+                
+                // If we've retransmitted too many times, close connection
+                if(j < 10) {
+                    retryCount[j]++;
+                    if(retryCount[j] > 5) { // 5 retries max
+                        dbg(TRANSPORT_CHANNEL, "Node %d: Too many retransmissions on socket %d, closing\n",
+                            TOS_NODE_ID, sockId);
+                        sock->state = CLOSED;
+                        // Remove from unacked queue
+                        for(k = j; k < unackedCount - 1; k++) {
+                            unackedQueue[k] = unackedQueue[k + 1];
+                            retryCount[k] = retryCount[k + 1];
+                        }
+                        unackedCount--;
+                        j--; // Adjust index after removal
+                    }
+                }
             }
         }
         
+        // Clean up any closed sockets from the queue
+        writeIdx = 0;
+        for(j = 0; j < unackedCount; j++) {
+            socket_store_t* sock = &sockets[unackedQueue[j].sockId];
+            if(sock->state != CLOSED) {
+                if(writeIdx != j) {
+                    unackedQueue[writeIdx] = unackedQueue[j];
+                }
+                writeIdx++;
+            }
+        }
+        unackedCount = writeIdx;
+        
         // Restart timer if there are still unacked segments
         if(unackedCount > 0) {
-            call RetransmitTimer.startOneShot(100); // Check every 100ms
+            call RetransmitTimer.startOneShot(100);
+            timerRunning = TRUE;
+            dbg(TRANSPORT_CHANNEL, "Node %d: Retransmit timer restarted, %d segments pending\n",
+                TOS_NODE_ID, unackedCount);
         } else {
             timerRunning = FALSE;
+            dbg(TRANSPORT_CHANNEL, "Node %d: No more unacked segments, stopping timer\n",
+                TOS_NODE_ID);
         }
     }
-    
+
     // NeighborDiscovery event implementation
     event void NeighborDiscovery.neighborsChanged(uint8_t neighborCount) {
-        // This event is triggered when neighbor table changes
-        // We don't need to do anything special for TCP, but we must implement it
         dbg(TRANSPORT_CHANNEL, "Node %d: TCP neighborsChanged event: %d neighbors\n",
             TOS_NODE_ID, neighborCount);
     }
