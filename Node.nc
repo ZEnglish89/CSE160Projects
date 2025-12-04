@@ -272,8 +272,13 @@ implementation{
                         consecutiveEmptyReads = 0;  // Reset counter
                         
                         // Print in the format expected by Project 3
-                        dbg(PROJECT3TGEN_CHANNEL, "Node %d: Reading Data from socket %d: %.*s\n", 
-                            TOS_NODE_ID, acceptedSockets[i], bytesRead, buffer);
+                        dbg(TRANSPORT_CHANNEL, "Node %d: Reading Data length %d from socket %d:\n", 
+                            TOS_NODE_ID, bytesRead, acceptedSockets[i]);
+
+                        for(j=0;j<bytesRead;j++){
+                            dbg(TRANSPORT_CHANNEL,"%d\n",buffer[j]);
+                        }
+
                         
                         // Check for complete data set
                         foundEnd = FALSE;
@@ -296,10 +301,13 @@ implementation{
                             connectionAlreadyAccepted = FALSE;
                             break;
                         }
-                    } else {
+                    
+                    } 
+                    
+                    else {
                         consecutiveEmptyReads++;
                         
-                        // If we've had many empty reads, the connection might be closing
+/*                        // If we've had many empty reads, the connection might be closing
                         if(consecutiveEmptyReads > 10) {
                             dbg(TRANSPORT_CHANNEL, "Node %d: Many empty reads on socket %d, checking connection state\n",
                                 TOS_NODE_ID, acceptedSockets[i]);
@@ -309,6 +317,7 @@ implementation{
                                     TOS_NODE_ID, acceptedSockets[i], consecutiveEmptyReads);
                             }
                         }
+                        */
                     }
                 }
             }
@@ -357,10 +366,10 @@ implementation{
                     
                     // Simple number
                     if(number < 10) {
-                        buffer[pos++] = '0' + number;
+                        buffer[pos++] = number;
                     } else {
                         // For simplicity, just send single digit
-                        buffer[pos++] = '0' + (number % 10);
+                        buffer[pos++] = (number % 10);
                     }
                     
                     if(i < numbersToSend - 1) {

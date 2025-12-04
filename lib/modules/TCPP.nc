@@ -357,9 +357,9 @@ implementation {
                 dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d FIN received in FIN_WAIT_1, moving to CLOSING\n",
                     TOS_NODE_ID, sockId);
             } else if(sock->state == FIN_WAIT_2) {
-                sock->state = TIME_WAIT;
+                sock->state = CLOSED;
                 sock->timeWaitCount = 100;
-                dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d FIN received in FIN_WAIT_2, moving to TIME_WAIT\n",
+                dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d FIN received in FIN_WAIT_2, moving to CLOSED\n",
                     TOS_NODE_ID, sockId);
             }
             
@@ -419,18 +419,23 @@ implementation {
                 sendAck = TRUE;
             } 
             else if(sock->state == FIN_WAIT_1) {
-                sock->state = FIN_WAIT_2;
-                dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d FIN_WAIT_1 ACK received, moving to FIN_WAIT_2\n",
+                sock->state = LAST_ACK;
+                dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d FIN_WAIT_1 ACK received, moving to LAST_ACK\n",
                     TOS_NODE_ID, sockId);
             } else if(sock->state == CLOSING) {
+                
+                /*
                 sock->state = TIME_WAIT;
                 sock->timeWaitCount = 100;
                 dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d CLOSING ACK received, moving to TIME_WAIT\n",
-                    TOS_NODE_ID, sockId);
+                    TOS_NODE_ID, sockId);*/
             } else if(sock->state == LAST_ACK) {
-                sock->state = CLOSED;
-                dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d LAST_ACK ACK received, moving to CLOSED\n",
-                    TOS_NODE_ID, sockId);
+                if(header->AckNum == (sock->lastByteSent)){
+                    sock->state = CLOSED;
+                    dbg(TRANSPORT_CHANNEL, "Node %d: Socket %d LAST_ACK ACK received, moving to CLOSED\n",
+                        TOS_NODE_ID, sockId);
+                }
+
             }
         }
         
@@ -795,6 +800,8 @@ implementation {
         uint32_t startIdx;
         uint16_t firstPart;
         
+//        dbg(TRANSPORT_CHANNEL,"Node %d inside read()\n",TOS_NODE_ID);
+
         if(fd >= MAX_NUM_OF_SOCKETS) {
             return 0;
         }
@@ -802,10 +809,15 @@ implementation {
         sock = &sockets[fd];
         available = sock->lastByteRcvd - sock->lastByteRead;
         
-        dbg(TRANSPORT_CHANNEL, "Node %d: TCP.read socket %d lastByteRcvd=%lu lastByteRead=%lu available=%lu\n",
-            TOS_NODE_ID, fd, sock->lastByteRcvd, sock->lastByteRead, available);
+//        dbg(TRANSPORT_CHANNEL, "Node %d: TCP.read socket %d lastByteRcvd=%lu lastByteRead=%lu available=%lu\n",
+//            TOS_NODE_ID, fd, sock->lastByteRcvd, sock->lastByteRead, available);
         
+        //if the buffer is empty and we're waiting to close, now's our time to close.
+        //otherwise, we can just return and move on.
         if(available == 0) {
+            if(sock->state == CLOSE_WAIT){
+                call TCP.close(fd);
+            }
             return 0;
         }
         
@@ -837,7 +849,7 @@ implementation {
             dbg("Project3TGen", "Node %d: Read Data from socket %d: %.*s\n",
                 TOS_NODE_ID, fd, readLen, buff);
         }
-        
+
         return readLen;
     }
 
@@ -853,7 +865,7 @@ implementation {
         
         sock = &sockets[fd];
         
-        dbg(PROJECT3TGEN_CHANNEL, "Node %d: TCP.close() called on socket %d (state: %d)\n",
+        dbg(TRANSPORT_CHANNEL, "Node %d: TCP.close() called on socket %d (state: %d)\n",
             TOS_NODE_ID, fd, sock->state);
         
         if(sock->state == ESTABLISHED) {
